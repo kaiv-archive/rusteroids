@@ -46,7 +46,7 @@ pub fn main() {
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0)) // ::<NoUserData>::pixels_per_meter(15.0)
         .add_plugins(RapierDebugRenderPlugin{enabled: false, ..default()})
         .add_plugins(WorldInspectorPlugin::new())
-        //.configure_sets(Startup,  (MySet::First, MySet::Second).chain())
+        //.configure_sets(Startup,  (MySet::First, MySet::Second).chain())/
         .add_systems(Startup, (
             //basic_setup,
 
