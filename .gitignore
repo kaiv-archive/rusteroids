@@ -12,3 +12,9 @@ Cargo.lock
 
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
+
+t.rs
+t2.rs
+test.rs
+test2.rs
+todo.txt
