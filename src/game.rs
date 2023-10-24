@@ -1,6 +1,6 @@
 use bevy::{
     prelude::*,
-    sprite::{MaterialMesh2dBundle, Mesh2dHandle}, render::{render_resource::{PrimitiveTopology, Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages}, mesh::Indices, camera::RenderTarget, view::RenderLayers}, utils::HashMap, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::{BloomSettings, BloomCompositeMode}, clear_color::ClearColorConfig}, window::WindowResized,
+    sprite::{MaterialMesh2dBundle, Mesh2dHandle}, render::{render_resource::{PrimitiveTopology, Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages}, mesh::Indices, camera::RenderTarget, view::RenderLayers}, utils::HashMap, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::{BloomSettings, BloomCompositeMode}, clear_color::ClearColorConfig}, window::WindowResized, input::keyboard::KeyboardInput,
 };
 
 use bevy_rapier2d::prelude::*;
@@ -536,8 +536,7 @@ pub fn spawn_ship(
                 },
             )).insert(MaterialMesh2dBundle { //MESH
                     mesh: Mesh2dHandle(meshes.add(mesh)),
-                    transform: Transform::from_translation(Vec3::new(0., 0., 0.)).with_scale(Vec3::splat(32.)),
-                        //,
+                    transform: Transform::from_translation(Vec3::new(0., 0., 0.)).with_scale(Vec3::splat(3.)),
                     material: materials.add(ColorMaterial::default()), //ColorMaterial::from(texture_handle)
                     ..default()
                 },
@@ -562,12 +561,24 @@ pub fn spawn_ship(
 
 pub fn debug_chunk_render(
     chunks_q: Query<(&Chunk, Entity)>,
-    map: ResMut<MapSettings>,
+    mut map: ResMut<MapSettings>,
     asset_server: Res<AssetServer>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    keys: Res<Input<KeyCode>>,
 ){
+    if keys.just_pressed(KeyCode::F3){
+        map.debug_render = !map.debug_render;
+    }
+
+    if !map.debug_render {
+        for (_, e) in chunks_q.iter(){
+            commands.entity(e).despawn();
+        }
+        return;
+    }
+
     let font = asset_server.load("fonts/F77MinecraftRegular-0VYv.ttf");
     let text_style = TextStyle {
         font: font.clone(),
@@ -627,7 +638,7 @@ pub fn debug_chunk_render(
             } else {
                 existing_debug_chunks.remove(existing_debug_chunks.iter().position(|x| x == chunk).unwrap());
             }
-        }         
+        }   
     }
 }
 
