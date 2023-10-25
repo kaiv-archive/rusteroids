@@ -205,15 +205,11 @@ fn receive_message_system(
     mut map: ResMut<MapSettings>
 ) {
     while let Some(message) = client.receive_message(DefaultChannel::ReliableOrdered) {
-
-        let message_type: MessageType = (*(message.last().unwrap())).into();
-        let mut message = message.to_vec();
-        message.remove(message.len() - 1);
-        match message_type {
-            MessageType::OnConnect => {
-                let msg: OnConnectg_MSG = bincode::deserialize(&message[..]).unwrap();
-                map.max_size = msg.max_size;
-                map.single_chunk_size = msg.single_chunk_size;
+        let msg: MessageType = bincode::deserialize::<MessageType>(&message).unwrap();
+        match msg {
+            MessageType::OnConnect{ clients_data, max_size, single_chunk_size } => {
+                map.max_size = max_size;
+                map.single_chunk_size = single_chunk_size;
             },
             _ => {}
         }

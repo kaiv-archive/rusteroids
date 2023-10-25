@@ -1,5 +1,5 @@
 use std::f32::consts::PI;
-use bevy::{render::{view::{window, RenderLayers}, mesh::Indices, render_resource::{PrimitiveTopology, TextureDescriptor, Extent3d, TextureDimension, TextureFormat, TextureUsages}, color::SrgbColorSpace, camera::RenderTarget}, window::WindowResized, asset::FileAssetIo, utils::label, sprite::{MaterialMesh2dBundle, Mesh2dHandle}, input::keyboard::KeyboardInput, prelude::*, DefaultPlugins, app::AppExit, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::{BloomCompositeMode, BloomSettings}, clear_color::ClearColorConfig}, transform::commands};
+use bevy::{render::{view::{window, RenderLayers}, mesh::Indices, render_resource::{PrimitiveTopology, TextureDescriptor, Extent3d, TextureDimension, TextureFormat, TextureUsages}, camera::RenderTarget}, prelude::*, app::AppExit, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::{BloomCompositeMode, BloomSettings}, clear_color::ClearColorConfig}};
 use bevy_egui::{egui::{self, Style, Visuals, epaint::{Shadow, self, Vertex, Hsva}, Color32, Rounding, FontDefinitions, Align, Stroke, FontId, WidgetInfo, Frame, emath, Pos2, vec2}, EguiContexts, EguiUserTextures};
 use bevy::prelude::*;
 use rand::random;
@@ -458,106 +458,6 @@ pub fn egui_based_menu(
                 ship_preview_texture_id,
                 egui::vec2(ui.available_size().x, ui.available_size().x),
             );
-            /*Frame::canvas(ui.style()).show(ui, |ui| {
-
-            });*/
-
-            /* 
-            Frame::canvas(ui.style()).show(ui, |ui| {
-                ui.ctx().request_repaint();
-                let time = ui.input(|i| i.time);
-                let color = Color32::from_rgb((settings.color[0] * 255.) as u8, (settings.color[1] * 255.) as u8, (settings.color[2] * 255.) as u8);
-                
-                let desired_size = ui.available_width() * vec2(1.0, 1.0);
-                let (_id, rect) = ui.allocate_space(desired_size);
-    
-                let to_screen =
-                    //emath::RectTransform::from_to(emath::Rect::from_x_y_ranges(-1.0..=-0.5, 4.0..=3.5), rect);
-                    emath::RectTransform::from_to(emath::Rect::from_x_y_ranges(-6.0..=6.0, 6.0..=-6.0), rect);
-    
-                let mut shapes = vec![];
-                let style: u8 = ship_style.0 * 64 + ship_style.2 as u8 * 32 + ship_style.3 as u8* 16 + ship_style.4 as u8  * 8 + ship_style.5 as u8 * 4 + ship_style.6 as u8 * 2 + ship_style.1 as u8;
-                let (vertices, indices) = get_ship_vertices(style);
-
-                
-                for i in 0..vertices.len(){
-                    let v = vertices[i].iter().map(|&p| to_screen * Pos2::from(p)).collect::<Vec<_>>();
-                    let isbody = vertices[i].contains(&(0., 5.));
-  
-                    let color = if isbody && ship_style.1 {Color32::WHITE } else {color};
-                    let ind = indices[i].clone();
-                    if ship_style.2{
-                        shapes.push(epaint::Shape::line(v, egui::Stroke{width:1., color: color}))
-                    } else {
-                        shapes.push(epaint::Shape::mesh(
-                            epaint::Mesh{
-                                indices: ind.iter().map(|&i| i % ind.len() as u32).collect::<Vec<_>>(),
-                                vertices: v.iter().map(|&p| Vertex { pos: p, uv: Pos2{x: 0., y:0.}, color: color }).collect::<Vec<_>>(),
-                                ..default()
-                            }
-                        ));
-                    }
-                }
-                
-   
-                /*shapes.push(epaint::Shape::mesh(
-                    epaint::Mesh{
-                        indices: vec![0, 1, 2],
-                        vertices: vec![
-                            Vertex{ pos: to_screen * Pos2{x: 0.5, y: 0.5}, uv: Pos2{x: 0., y:0.}, color: Color32::WHITE },
-                            Vertex{ pos: to_screen * Pos2{x: 0., y: 0.}, uv: Pos2{x: 0., y:0.}, color: Color32::WHITE },
-                            Vertex{ pos: to_screen * Pos2{x: 1., y: 0.}, uv: Pos2{x: 0., y:0.}, color: Color32::WHITE },
-                            ],
-                        ..default()
-                    }
-                ));
-                shapes.push(epaint::Shape::line(
-                    vec![to_screen * Pos2{x:  200., y: 200.},
-                    to_screen * Pos2{x:  100., y: 200.}, to_screen * Pos2{x:  100., y: 100.}
-                    ], Stroke::new(1.,  Color32::WHITE )));*/
-                
-                ui.painter().extend(shapes);
-            });
-            */
-            /*Frame::canvas(ui.style()).show(ui, |ui| {
-                ui.ctx().request_repaint();
-                let time = ui.input(|i| i.time);
-    
-                let desired_size = ui.available_width() * vec2(1.0, 1.0);
-                let (_id, rect) = ui.allocate_space(desired_size);
-    
-                let to_screen =
-                    emath::RectTransform::from_to(emath::Rect::from_x_y_ranges(0.0..=1.0, -1.0..=1.0), rect);
-    
-                let mut shapes = vec![];
-    
-                for &mode in &[2, 3, 5, 9] {
-                    let mode = mode as f64;
-                    let n = 120;
-                    let speed = 1.5;
-    
-                    let points: Vec<Pos2> = (0..=n)
-                        .map(|i| {
-                            let t = i as f64 / (n as f64);
-                            let amp = (time * speed * mode).sin() / mode;
-                            let y = amp * (t * std::f64::consts::TAU / 2.0 * mode).sin();
-                            to_screen * Pos2::from((t as f32, y as f32))
-                        })
-                        .collect();
-    
-                    let thickness = 10.0 / mode as f32;
-                    let color = match &(mode as i32){
-                        2 => {Color32::WHITE},
-                        3 => {Color32::from_rgb((settings.color[0] * 255.) as u8, (settings.color[1] * 255.) as u8, (settings.color[2] * 255.) as u8)},
-                        5 => {Color32::from_rgb((settings.color2[0] * 255.) as u8, (settings.color2[1] * 255.) as u8, (settings.color2[2] * 255.) as u8)},
-                        9 => {Color32::from_rgb((settings.color3[0] * 255.) as u8, (settings.color3[1] * 255.) as u8, (settings.color3[2] * 255.) as u8)},
-                        _ => {Color32::WHITE}
-                    };
-                    shapes.push(epaint::Shape::line(points, Stroke::new(thickness, color)));
-                }
-                ui.painter().extend(shapes);
-            });*/
-
     });
 }
 
@@ -795,7 +695,7 @@ pub fn update_menu(
     }
     
     /////
-
+    
     // LABEL
 
     // PULSE!!!

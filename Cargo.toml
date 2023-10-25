@@ -60,3 +60,8 @@ path = "src/0solo_client.rs"
 [[bin]]
 name = "asteroid"
 path = "src/generator_test.rs"
+
+[[bin]]
+name = "bincode_test"
+path = "src/bincode_test.rs"
+

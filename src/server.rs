@@ -278,7 +278,7 @@ fn send_message_system(mut server: ResMut<RenetServer>) {
     // let channel_id = 0;
     // Send a text message for all clients
     // The enum DefaultChannel describe the channels used by the default configuration
-    server.broadcast_message(DefaultChannel::ReliableOrdered, "server message".as_bytes().to_vec());
+    //server.broadcast_message(DefaultChannel::ReliableOrdered, "server message".as_bytes().to_vec());
 }
 
 
@@ -346,14 +346,12 @@ fn handle_events_system(
 
                 
                 // SEND DATA TO CONNECTED PLAYER
-                let msg = OnConnectg_MSG{
+                let msg = MessageType::OnConnect{
                     clients_data: ClientsData::default(),
                     max_size: map.max_size,
                     single_chunk_size: map.single_chunk_size,
                 };
-                let msg_type = MessageType::OnConnect as u8;
-                let mut encoded: Vec<u8> = bincode::serialize(&msg).unwrap();
-                encoded.push(msg_type);
+                let encoded: Vec<u8> = bincode::serialize(&msg).unwrap();
                 server.send_message(*client_id, DefaultChannel::ReliableOrdered, encoded);
 
                 // SEND CONNECTION MESSAGE TO ALL

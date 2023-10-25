@@ -163,7 +163,7 @@ fn setup(
 }
 
 
-const TARGET_HEIGHT: f32 = 32.;
+const TARGET_HEIGHT: f32 = 3200.;
 
 
 fn on_resize(

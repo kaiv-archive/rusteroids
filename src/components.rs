@@ -4,31 +4,33 @@ use bevy_rapier2d::prelude::Velocity;
 use serde::{Serialize, Deserialize};
 
 
-#[allow(dead_code)]
+#[derive(Serialize, Deserialize)]
 pub enum MessageType{
-    OnConnect, // MAP AND CLIENT DATA
-    Update, // DATA ABOUT CHUNKS AROUND
-    Inputs, // CLIENT INPUTS
-    ChatMessage, // SENDER, MESSAGE
-    NewConnection, // CLIENT DATA
-    NewDisconnection, // CLIENT ID
-    Kick, // REASON
-    ERR,
-}
+    OnConnect{
+        clients_data: ClientsData,
+        max_size: Vec2,
+        single_chunk_size: Vec2,
+    }, // MAP AND CLIENT DATA
+    Update{
 
-impl From<u8> for MessageType{
-    fn from(item: u8) -> Self{
-        match item{
-            0 => {MessageType::OnConnect}
-            1 => {MessageType::Update}
-            2 => {MessageType::Inputs}
-            3 => {MessageType::ChatMessage}
-            4 => {MessageType::NewConnection}
-            5 => {MessageType::NewDisconnection}
-            6 => {MessageType::Kick}
-            _ => {MessageType::ERR}
-        }
-    }
+    }, // DATA ABOUT CHUNKS AROUND
+    Inputs{
+        
+    }, // CLIENT INPUTS
+    ChatMessage{
+        sender_id: u64,
+        message: String,
+    }, // SENDER, MESSAGE
+    NewConnection{
+        client_data: ClientData
+    }, // CLIENT DATA
+    NewDisconnection{
+        id: u64
+    }, // CLIENT ID
+    Kick{
+        reason: String
+    }, // REASON
+    ERR,
 }
 
 #[derive(Serialize, Deserialize)]
