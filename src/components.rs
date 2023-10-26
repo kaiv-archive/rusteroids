@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use bevy::prelude::{Component, Resource, Event, Vec2, Vec3, Transform, Entity};
+use bevy::{prelude::{Component, Resource, Event, Vec2, Vec3, Transform, Entity}, ecs::query::Has};
 use bevy_rapier2d::prelude::Velocity;
 use serde::{Serialize, Deserialize};
 
@@ -34,34 +34,6 @@ pub enum MessageType{
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct OnConnectg_MSG{
-    pub clients_data: ClientsData,
-    pub max_size: Vec2,
-    pub single_chunk_size: Vec2,
-}
-#[derive(Serialize, Deserialize)]
-pub struct Update_MSG{
-
-}
-#[derive(Serialize, Deserialize)]
-pub struct ChatMessage_MSG{
-    pub sender_id: u64,
-    pub message: String,
-}
-#[derive(Serialize, Deserialize)]
-pub struct NewConnection_MSG{
-    pub client_data: ClientData
-}
-#[derive(Serialize, Deserialize)]
-pub struct NewDisconnection_MSG{
-    pub id: u64
-}
-#[derive(Serialize, Deserialize)]
-pub struct Kick_MSG{
-    pub reason: String
-}
-
-#[derive(Serialize, Deserialize)]
 pub struct MyData{
     pub color: [f32; 3],
     pub style: u8,
@@ -69,6 +41,7 @@ pub struct MyData{
 }
 
 #[derive(Serialize, Deserialize)]
+#[derive(Clone)]
 #[derive(Resource)]
 pub struct ClientsData{
     binds: HashMap<u64, u64>, // object_id -> client_id
@@ -76,6 +49,7 @@ pub struct ClientsData{
 } 
 
 #[derive(Serialize, Deserialize)]
+#[derive(Clone)]
 #[derive(Component)]
 pub struct ClientData{ 
     pub client_id: u64,
@@ -93,6 +67,12 @@ impl Default for ClientsData {
     }
 }
 impl ClientsData{
+    pub fn clean_exclude_me(&mut self){
+        let to_save = self.get_by_client_id(0).clone();
+        self.binds = HashMap::new();
+        self.data = HashMap::new();
+        self.add(to_save);
+    }
     pub fn get_by_object_id(&self, key: u64) -> &ClientData{
         self.data.get(self.binds.get(&key).unwrap()).unwrap()
     }
@@ -197,9 +177,6 @@ pub struct SpawnBullet{
 #[derive(Event)]
 pub struct SpawnAsteroid{ pub transform: Transform, pub velocity: Velocity, pub seed: u64}
 
-
-#[derive(Event)]
-pub struct SpawnShip{pub id: u64, pub for_preview: bool}
 
 pub enum GameRenderLayers{
     _Main,

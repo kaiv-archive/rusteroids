@@ -27,7 +27,9 @@ pub struct SpawnMenuBeam{
 pub fn despawn_menu(
     mut commands: Commands,
     beam_q: Query<Entity, With<MenuBeam>>,
-    label_q: Query<Entity, With<LabelAnimation>>
+    label_q: Query<Entity, With<LabelAnimation>>,
+    preview_camera_q: Query<Entity, With<ShipPreviewCamera>>,
+    preview_ship_q: Query<Entity, With<ShipPreview>>,
 ){
     for b in beam_q.iter(){
         commands.entity(b).despawn();
@@ -35,24 +37,33 @@ pub fn despawn_menu(
     for l in label_q.iter(){
         commands.entity(l).despawn();
     }
+    for e in preview_camera_q.iter(){
+        commands.entity(e).despawn();
+    }
+    for e in preview_ship_q.iter(){
+        commands.entity(e).despawn();
+    }
 }
 
 pub fn update_preview_ship(
     mut commands: Commands,
     mut prev_style: Local<u8>,
     mut prev_color: Local<[f32; 3]>,
-    clientsdata: ResMut<ClientsData>,
     mut ship_preview: Query<(Entity, &mut Transform), With<ShipPreview>>,
-    mut writer: EventWriter<SpawnShip>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    clients_data: Res<ClientsData>
 ){
-    let clientdata = clientsdata.get_by_client_id(0);
+    let clientdata = clients_data.get_by_client_id(0);
     let sp = ship_preview.get_single_mut();
     match sp{
         Ok(tuple) => {
             let (e, mut t) = tuple;
             if clientdata.style != *prev_style || clientdata.color != *prev_color{
                 commands.entity(e).despawn_recursive();
-                writer.send(SpawnShip { id: 0, for_preview: true });
+                let player_data = clients_data.get_by_client_id(0);
+                let e = spawn_ship(true, &mut meshes, &mut materials, &mut commands, player_data);
+                commands.entity(e).insert((ShipPreview, RenderLayers::layer(GameRenderLayers::PreviewCamera as u8)));
                 *prev_style = clientdata.style;
                 *prev_color = clientdata.color;
             }
@@ -71,10 +82,9 @@ pub fn setup_preview_camera(
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    mut spawnship: EventWriter<SpawnShip>,
-    mut clientsdata: ResMut<ClientsData>
+    mut clients_data: ResMut<ClientsData>
 ){
-    clientsdata.add(ClientData{
+    clients_data.add(ClientData{
         client_id: 0,
         object_id: 0,
         style: 0,
@@ -134,9 +144,12 @@ pub fn setup_preview_camera(
             ..default()
         },
         PixelCamera,
+        ShipPreviewCamera,
+        Name::new("ShipPreviewCamera")
     )).insert(preview_pass_layer);
-
-    spawnship.send(SpawnShip { id: 0, for_preview: true });
+    let player_data = clients_data.get_by_client_id(0);
+    let e = spawn_ship(true, &mut meshes, &mut materials, &mut commands, player_data);
+    commands.entity(e).insert((ShipPreview, RenderLayers::layer(GameRenderLayers::PreviewCamera as u8)));
 }
 
 pub fn egui_based_menu(
@@ -465,7 +478,7 @@ pub fn egui_based_menu(
 pub struct ShipPreviewImage{pub handle: Handle<Image>}
 
 #[derive(Component)]
-struct ShipPreviewCamera;
+pub struct ShipPreviewCamera;
 
 
 

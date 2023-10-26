@@ -1,11 +1,12 @@
 //#![windows_subsystem = "windows"]
 use std::{net::{UdpSocket, SocketAddr}, time::SystemTime, path::Path, f32::consts::PI, collections::BTreeMap, ops::RangeInclusive, any};
 
-use bevy::{render::{view::window, mesh::Indices, render_resource::PrimitiveTopology, color::SrgbColorSpace}, window::WindowResized, asset::FileAssetIo, utils::label, sprite::{MaterialMesh2dBundle, Mesh2dHandle}, input::keyboard::KeyboardInput, prelude::*, DefaultPlugins, app::AppExit, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::BloomCompositeMode}};
+use bevy::{render::{view::window, mesh::Indices, render_resource::PrimitiveTopology, color::SrgbColorSpace}, window::WindowResized, asset::FileAssetIo, utils::label, sprite::{MaterialMesh2dBundle, Mesh2dHandle}, input::keyboard::KeyboardInput, prelude::*, DefaultPlugins, app::AppExit, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::BloomCompositeMode}, transform::commands};
 use bevy_egui::{egui::{self, Style, Visuals, epaint::{Shadow, self, Vertex, Hsva}, Color32, Rounding, FontDefinitions, Align, Stroke, FontId, WidgetInfo, Frame, emath, Pos2, vec2}, EguiContexts};
 use bevy_inspector_egui::{quick::WorldInspectorPlugin, bevy_egui::{EguiPlugin, EguiContext}};
 use bevy_rapier2d::na::{Translation, U4};
 use bevy_renet::{renet::{*, transport::*}, RenetServerPlugin, transport::{NetcodeServerPlugin, NetcodeClientPlugin}, RenetClientPlugin};
+use json::object;
 use rand::random;
 use renet_visualizer::RenetServerVisualizer;
 
@@ -74,7 +75,8 @@ fn main(){
         (
             update_menu,
             spawn_beam,
-            (egui_based_menu, update_preview_ship).chain(),
+            egui_based_menu,
+            update_preview_ship,
     ).run_if(in_state(ClientState::Menu)));
     app.add_systems(
         OnExit(ClientState::Menu), 
@@ -96,13 +98,15 @@ fn main(){
             (snap_objects, update_chunks_around).chain(),
             spawn_asteroid,
 
-
             receive_message_system,
             send_message_system,
     ).run_if(in_state(ClientState::InGame)));
-   
+    app.add_systems(
+        OnExit(ClientState::InGame), 
+        (
+            despawn_game_components,
+    ));
 
-    app.add_systems(Update, spawn_ship,);
 
 
     app.insert_resource(ConnectProperties{adress: "".into()});
@@ -110,16 +114,27 @@ fn main(){
     app.add_event::<SpawnMenuBeam>();
     app.add_event::<InitClient>();
 
-    app.add_event::<SpawnShip>();
     app.add_event::<SpawnAsteroid>();
 
-    app = game::init_pixel_camera(app);
+    game::init_pixel_camera(&mut app);
 
     app.run()
 }
 
-
-
+fn despawn_game_components(
+    mut commands: Commands,
+    objects_q: Query<Entity, With<Object>>,
+    debug_chuncs_q: Query<Entity, With<Chunk>>,
+    mut clients_data: ResMut<ClientsData>,
+){
+    for e in objects_q.iter(){
+        commands.entity(e).despawn();
+    }
+    for e in debug_chuncs_q.iter(){
+        commands.entity(e).despawn();
+    }
+    clients_data.clean_exclude_me();
+}
 
 fn init_client(
     mut reader: EventReader<InitClient>,
@@ -127,10 +142,10 @@ fn init_client(
     settings: Res<GameSettings>,
     mut commands: Commands,
     mut connect_properties: ResMut<ConnectProperties>,
-    
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
     // todo: FOR DEBUG => REMOVE IT
     mut clients_data: ResMut<ClientsData>,
-    mut writer: EventWriter<SpawnShip>,
 ){  
     for e in reader.iter(){
         let mut data: Vec<u8> = vec![];
@@ -183,7 +198,8 @@ fn init_client(
                 name: "CURSED".into()
             }
         );
-        writer.send(SpawnShip { id: 0, for_preview: false });
+        let player_data = clients_data.get_by_client_id(0);
+        spawn_ship(false, &mut meshes, &mut materials, &mut commands, player_data);
 
 
         commands.insert_resource(RenetClient::new(ConnectionConfig::default()));
@@ -202,8 +218,13 @@ fn send_message_system(
 
 fn receive_message_system(
     mut client: ResMut<RenetClient>,
-    mut map: ResMut<MapSettings>
+    mut map: ResMut<MapSettings>,
+    mut next_state: ResMut<NextState<ClientState>>,
 ) {
+    if client.is_disconnected(){
+        next_state.set(ClientState::Menu);
+    }
+
     while let Some(message) = client.receive_message(DefaultChannel::ReliableOrdered) {
         let msg: MessageType = bincode::deserialize::<MessageType>(&message).unwrap();
         match msg {

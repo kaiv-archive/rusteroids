@@ -73,7 +73,6 @@ fn main(){
         
         (snap_objects, update_chunks_around).chain(),
         spawn_asteroid,
-        spawn_ship,
         // multiplayer connection systems
         send_message_system,
         receive_message_system,
@@ -81,7 +80,6 @@ fn main(){
     ).run_if(in_state(ServerState::Running)));
     //app.add_systems(OnExit(ServerState::Running), cleanup_menu)
 
-    app.add_event::<SpawnShip>();
     app.add_event::<SpawnAsteroid>();
     app.add_event::<ServerEvent>();
     
@@ -306,7 +304,8 @@ fn handle_events_system(
     mut commands: Commands,
     mut map: ResMut<MapSettings>,
     transport: Res<NetcodeServerTransport>,
-    mut spawn_ship: EventWriter<SpawnShip>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     for event in server_events.iter() {
         //println!("{:?}", event);
@@ -330,11 +329,9 @@ fn handle_events_system(
                     Ok(s) => {s}
                     Err(_) => {todo!("KICK")}
                 };
-
+                
                 /* SPAWN */
                 let object_id = map.new_id();
-                spawn_ship.send(SpawnShip { id: *client_id, for_preview: false });
-
                 clients_data.add(
                     ClientData { 
                         client_id:*client_id,
@@ -343,6 +340,10 @@ fn handle_events_system(
                         color: [data[0] as f32 / 255., data[1] as f32 / 255., data[2] as f32 / 255.], 
                         name: name.to_string() 
                 });
+                let player_data = clients_data.get_by_client_id(*client_id);
+                spawn_ship(false, &mut meshes, &mut materials, &mut commands, player_data);
+
+                
 
                 
                 // SEND DATA TO CONNECTED PLAYER

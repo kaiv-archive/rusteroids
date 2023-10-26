@@ -56,11 +56,10 @@ pub fn pixel_camera_event_listener(
 }
 
 #[allow(dead_code)]
-pub fn init_pixel_camera(mut app: App) -> App{
+pub fn init_pixel_camera(app: &mut App){
     app.add_event::<ApplyCameraSettings>();
     app.add_systems(Startup, setup_pixel_camera);
     app.add_systems(Update, (update_pixel_camera, pixel_camera_event_listener));
-    app
 }
 
 #[allow(dead_code)]
@@ -430,131 +429,126 @@ pub fn spawn_asteroid( // replace to generate vertices function for showcase sen
 }
 
 pub fn spawn_ship(
-    mut events: EventReader<SpawnShip>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    mut commands: Commands,
-    clients_data: ResMut<ClientsData>,
-){
-    for e in events.iter(){
-        let client_id = e.id;
-        let player_data = clients_data.get_by_client_id(client_id);
-        let color = Color::from(player_data.color).as_rgba_f32();
-        let target_style = player_data.style;
+    mesh_only: bool,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<ColorMaterial>>,
+    commands: &mut Commands,
+    player_data: &ClientData,
+) -> Entity {
+    let color = Color::from(player_data.color).as_rgba_f32();
+    let target_style = player_data.style;
+    
+    let (triangle_vertices, mut triangle_indices) = get_ship_vertices(target_style);
+
+    
+
+    let mut vertices = vec![];
+    let mut vertex_colors = vec![];
+    let mut indices = vec![];
+
+
+    let mut style2 = target_style.clone();
+    let mut bits: [bool; 8] = [false; 8];
         
-        let (triangle_vertices, mut triangle_indices) = get_ship_vertices(target_style);
-
-        
- 
-        let mut vertices = vec![];
-        let mut vertex_colors = vec![];
-        let mut indices = vec![];
-
-
-        let mut style2 = target_style.clone();
-        let mut bits: [bool; 8] = [false; 8];
-            
-        for n in 0..=7{
-            let m = 2_u8.pow(7 - n);
-            //print!("{:?}", m);
-            let i = style2 / m;
-            //println!(" {:?}", i);
-            if i == 1{
-                bits[n as usize] = i != 0;
-            }
-            style2 = style2 % m;
+    for n in 0..=7{
+        let m = 2_u8.pow(7 - n);
+        //print!("{:?}", m);
+        let i = style2 / m;
+        //println!(" {:?}", i);
+        if i == 1{
+            bits[n as usize] = i != 0;
         }
-            
-            
-        //let is_lined = bits[2];
-        //let is_spear = bits[3];
-        //let is_spikes = bits[4];
-        //let is_gem = bits[5];
-        //let is_shards = bits[6];
-
-
-        let is_aspects = bits[7];
-        let is_lined = bits[2];
-        for i in 0..triangle_vertices.len(){
-            let mut v = triangle_vertices[i].iter().map(|&p| Vec3::from((p.0, p.1, 0.))).collect::<Vec<_>>();
-
-            let is_body = triangle_vertices[i].contains(&(0., 5.));
-            let color = if is_body && is_aspects {Color::WHITE.as_rgba_f32()} else {color};
-
-            vertex_colors.append(&mut vec![color; v.len()]);
-            vertices.append(&mut v);
-            indices.append(&mut triangle_indices[i]);
-
-            //let ind = indices[i].clone();
-            //
-            //if ship_style.2{
-            //    shapes.push(epaint::Shape::line(v, egui::Stroke{width:1., color: color}))
-            //} else {
-            //    shapes.push(epaint::Shape::mesh(
-            //        epaint::Mesh{
-            //            indices: ind,
-            //            vertices: v.iter().map(|&p| Vertex { pos: p, uv: Pos2{x: 0., y:0.}, color: color }).collect::<Vec<_>>(),
-            //            ..default()
-            //        }
-            //    ));
-            //}
-        }
-        let mut mesh = if is_lined{
-            Mesh::new(PrimitiveTopology::LineList)
-        } else {
-            Mesh::new(PrimitiveTopology::TriangleList)
-        };
-        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices);        
-        mesh.set_indices(Some(Indices::U32(indices)));
-        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vertex_colors);
-        if !e.for_preview{
-            commands.spawn((
-                RigidBody::Dynamic,
-                Velocity {              // VELOCITY
-                    linvel: Vec2::new(0.0, 0.0),
-                    angvel: 0.0
-                },
-                Friction{ // DISABLE ROTATING WHET COLLIDING TO ANYTHING ( MAYBE REPLACE IT ONLY FOR WALLS FOR FUN )
-                    coefficient: 0.0,
-                    combine_rule: CoefficientCombineRule::Min
-                },
-                GravityScale(0.0),
-                Sleeping::disabled(),
-                Ccd::enabled(),
-                Collider::triangle(Vec2::new(0., 12.0), Vec2::new(-6., -6.), Vec2::new(6., -6.)),
-                Restitution {
-                    coefficient: 1.,
-                    combine_rule: CoefficientCombineRule::Multiply,
-                },
-                Name::new("Player"),
-                ActiveEvents::CONTACT_FORCE_EVENTS,
-                ControlledPlayer,
-                Ship,
-                Object{
-                    id: player_data.object_id,
-                    object_type: ObjectType::Ship
-                },
-            )).insert(MaterialMesh2dBundle { //MESH
-                    mesh: Mesh2dHandle(meshes.add(mesh)),
-                    transform: Transform::from_translation(Vec3::new(0., 0., 0.)).with_scale(Vec3::splat(3.)),
-                    material: materials.add(ColorMaterial::default()), //ColorMaterial::from(texture_handle)
-                    ..default()
-                },
-            );
-        } else {
-            commands.spawn((
-                Name::new("ShipPreview"),
-                ShipPreview
-            )).insert(MaterialMesh2dBundle { //MESH
-                    mesh: Mesh2dHandle(meshes.add(mesh)),
-                    transform: Transform::from_translation(Vec3::new(0., 0., 0.)).with_scale(Vec3::splat(32.)),
-                        //,
-                    material: materials.add(ColorMaterial::default()), //ColorMaterial::from(texture_handle)
-                    ..default()
-                },
-            ).insert(RenderLayers::layer(GameRenderLayers::PreviewCamera as u8));
-        }
+        style2 = style2 % m;
     }
+        
+        
+    //let is_lined = bits[2];
+    //let is_spear = bits[3];
+    //let is_spikes = bits[4];
+    //let is_gem = bits[5];
+    //let is_shards = bits[6];
+
+
+    let is_aspects = bits[7];
+    let is_lined = bits[2];
+    for i in 0..triangle_vertices.len(){
+        let mut v = triangle_vertices[i].iter().map(|&p| Vec3::from((p.0, p.1, 0.))).collect::<Vec<_>>();
+
+        let is_body = triangle_vertices[i].contains(&(0., 5.));
+        let color = if is_body && is_aspects {Color::WHITE.as_rgba_f32()} else {color};
+
+        vertex_colors.append(&mut vec![color; v.len()]);
+        vertices.append(&mut v);
+        indices.append(&mut triangle_indices[i]);
+
+        //let ind = indices[i].clone();
+        //
+        //if ship_style.2{
+        //    shapes.push(epaint::Shape::line(v, egui::Stroke{width:1., color: color}))
+        //} else {
+        //    shapes.push(epaint::Shape::mesh(
+        //        epaint::Mesh{
+        //            indices: ind,
+        //            vertices: v.iter().map(|&p| Vertex { pos: p, uv: Pos2{x: 0., y:0.}, color: color }).collect::<Vec<_>>(),
+        //            ..default()
+        //        }
+        //    ));
+        //}
+    }
+    let mut mesh = if is_lined{
+        Mesh::new(PrimitiveTopology::LineList)
+    } else {
+        Mesh::new(PrimitiveTopology::TriangleList)
+    };
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices);        
+    mesh.set_indices(Some(Indices::U32(indices)));
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vertex_colors);
+    let entity = if !mesh_only{
+        commands.spawn((
+            RigidBody::Dynamic,
+            Velocity {              // VELOCITY
+                linvel: Vec2::new(0.0, 0.0),
+                angvel: 0.0
+            },
+            Friction{ // DISABLE ROTATING WHET COLLIDING TO ANYTHING ( MAYBE REPLACE IT ONLY FOR WALLS FOR FUN )
+                coefficient: 0.0,
+                combine_rule: CoefficientCombineRule::Min
+            },
+            GravityScale(0.0),
+            Sleeping::disabled(),
+            Ccd::enabled(),
+            Collider::triangle(Vec2::new(0., 12.0), Vec2::new(-6., -6.), Vec2::new(6., -6.)),
+            Restitution {
+                coefficient: 1.,
+                combine_rule: CoefficientCombineRule::Multiply,
+            },
+            Name::new("Player"),
+            ActiveEvents::CONTACT_FORCE_EVENTS,
+            ControlledPlayer,
+            Ship,
+            Object{
+                id: player_data.object_id,
+                object_type: ObjectType::Ship
+            },
+        )).insert(MaterialMesh2dBundle { //MESH
+                mesh: Mesh2dHandle(meshes.add(mesh)),
+                transform: Transform::from_translation(Vec3::new(0., 0., 0.)).with_scale(Vec3::splat(3.)),
+                material: materials.add(ColorMaterial::default()), //ColorMaterial::from(texture_handle)
+                ..default()
+            },
+        ).id()
+    } else {
+        commands.spawn(
+            MaterialMesh2dBundle { //MESH
+                mesh: Mesh2dHandle(meshes.add(mesh)),
+                transform: Transform::from_translation(Vec3::new(0., 0., 0.)).with_scale(Vec3::splat(32.)),
+                    //,
+                material: materials.add(ColorMaterial::default()), //ColorMaterial::from(texture_handle)
+                ..default()
+            },
+        ).id()
+    };
+    return entity
 }
 
 
@@ -664,7 +658,7 @@ pub fn snap_objects(
     }
 }
 
-// todo: ADD IMPLEMENTATION FOR SERVER (OVERLAPING CHUNKS)
+
 pub fn update_chunks_around(
     loaded_chunks: Res<LoadedChunks>,
     mut commands: Commands,
@@ -682,6 +676,8 @@ pub fn update_chunks_around(
 
     asteroid_q: Query<(&Asteroid,  &Collider), (With<Object>, Without<Puppet>)>,
     bullet_q: Query<&Bullet, (With<Object>, Without<Puppet>)>,
+
+    clients_data: Res<ClientsData>
     //ship_q: Query<&Ship, (With<Object>, Without<Puppet>)>,
 ){
     let font = asset_server.load("fonts/F77MinecraftRegular-0VYv.ttf");
@@ -932,17 +928,10 @@ pub fn update_chunks_around(
                             },
                             ObjectType::Ship => {
                                 //todo ЗАМЕНИТЬ НА spawn/get_ship_bundle
-                                let mut ship = Mesh::new(PrimitiveTopology::TriangleList);
-                                let v_pos = vec![
-                                    [0.0, 0.4, 0.0],   // 0
-                                    [-0.3, -0.3, 0.0], // 1
-                                    [0.0, -0.5, 0.0],  // 2
-                                    [0.3, -0.3, 0.0],  // 3
-                                ];
-                                ship.insert_attribute(Mesh::ATTRIBUTE_POSITION, v_pos);
-                                ship.set_indices(Some(Indices::U32(vec![0, 1, 2, 2, 3, 0])));
-                                ship.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![Color::WHITE.as_rgba_f32(); 4]);
-                                commands.spawn((
+                                let player_data = clients_data.get_by_object_id(object.id);
+                                let entity = spawn_ship(true, &mut meshes, &mut materials, &mut commands, player_data);
+
+                                commands.entity(entity).insert((
                                     RigidBody::Dynamic,
                                     **velocity,
                                     Friction{ // DISABLE ROTATING WHET COLLIDING TO ANYTHING ( MAYBE REPLACE IT ONLY FOR WALLS FOR FUN )
@@ -970,12 +959,8 @@ pub fn update_chunks_around(
                                         id: object.id,
                                         object_type: ObjectType::Ship
                                     },
-                                )).insert(MaterialMesh2dBundle { //MESH
-                                    mesh: Mesh2dHandle(meshes.add(ship)),
-                                    transform: transform.with_translation(pos).with_scale(Vec3::splat(32.)),
-                                    material: materials.add(ColorMaterial::default()), //ColorMaterial::from(texture_handle)
-                                    ..default()
-                                },);
+                                    transform.with_translation(pos),
+                                ));
                             }
                         }
                     }
