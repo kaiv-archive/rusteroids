@@ -3,6 +3,7 @@ use bevy::{
     sprite::{MaterialMesh2dBundle, Mesh2dHandle}, render::{render_resource::{PrimitiveTopology, Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages}, mesh::Indices, camera::RenderTarget, view::RenderLayers}, utils::HashMap, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::{BloomSettings, BloomCompositeMode}, clear_color::ClearColorConfig}, window::WindowResized, input::keyboard::KeyboardInput,
 };
 
+use bevy_hanabi::velocity;
 use bevy_rapier2d::prelude::*;
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
@@ -366,66 +367,64 @@ fn prepate_for_polyline(vec: Vec<[f32; 3]>, ind: Vec<u32>) -> (Vec<Vect>, Vec<[u
 }
 
 
-pub fn spawn_asteroid( // replace to generate vertices function for showcase sending it to clients (OR NO!)
-    mut events: EventReader<SpawnAsteroid>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    mut commands: Commands,
-    mut map_settings: ResMut<MapSettings>,
+pub fn spawn_asteroid(
+    seed: u64,
+    velocity: Velocity,
+    transform: Transform,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<ColorMaterial>>,
+    commands: &mut Commands,
+    map_settings: &mut ResMut<MapSettings>,
     //asset_server: Res<AssetServer>,
 ){
-    for data in events.iter(){
-        let mut mesh = Mesh::new(PrimitiveTopology::LineList);
+    let mut mesh = Mesh::new(PrimitiveTopology::LineList);
 
-        let seed = data.seed;
+    let seed = seed;
+    
+    let (vec, ind) = generate_asteroid_vertices(seed);
+
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec.clone());
+    mesh.set_indices(Some(Indices::U32(ind.clone())));
+
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![Color::WHITE.as_rgba_f32(); 16]);
+    
+    let (vertices, indices) = prepate_for_polyline(vec, ind);
+    //let (vertices, indices) = prepate_for_trimesh(vec, ind);
+    commands.spawn((
+        RigidBody::Dynamic,
+        //TransformBundle::from(Transform::from_xyz(0.0, 5.0, 0.0)), // SPAWN POSITION
+        velocity,
+        Friction{ // DISABLE ROTATING WHET COLLIDING TO ANYTHING ( MAYBE REPLACE IT ONLY FOR WALLS FOR FUN )
+            coefficient: 0.3,
+            combine_rule: CoefficientCombineRule::Min
+        },
+        GravityScale(0.0),
+        Sleeping::disabled(),
+        Ccd::enabled(),
+
+        Object{
+            id: map_settings.new_id(),
+            object_type: ObjectType::Asteroid
+        },
+        Collider::convex_decomposition(&vertices, &indices),
+        //Collider::trimesh(vertices, indices), // trimesh is shit for dynamic bodies
+
         
-        let (vec, ind) = generate_asteroid_vertices(seed);
 
-        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec.clone());
-        mesh.set_indices(Some(Indices::U32(ind.clone())));
-
-        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![Color::WHITE.as_rgba_f32(); 16]);
+        //Collider::ball(get_asteroid_size(seed) as f32 * 10.0),
+        Restitution {
+            coefficient: 1.,
+            combine_rule: CoefficientCombineRule::Multiply,
+        },
+        Name::new("ASTEROID"),
+        Asteroid{seed: seed, hp: 1 }, // TAG get_asteroid_size(seed) * 2 - 1 
         
-        let (vertices, indices) = prepate_for_polyline(vec, ind);
-        //let (vertices, indices) = prepate_for_trimesh(vec, ind);
-        commands.spawn((
-            RigidBody::Dynamic,
-            //TransformBundle::from(Transform::from_xyz(0.0, 5.0, 0.0)), // SPAWN POSITION
-            data.velocity,
-            Friction{ // DISABLE ROTATING WHET COLLIDING TO ANYTHING ( MAYBE REPLACE IT ONLY FOR WALLS FOR FUN )
-                coefficient: 0.3,
-                combine_rule: CoefficientCombineRule::Min
-            },
-            GravityScale(0.0),
-            Sleeping::disabled(),
-            Ccd::enabled(),
-
-            Object{
-                id: map_settings.new_id(),
-                object_type: ObjectType::Asteroid
-            },
-            Collider::convex_decomposition(&vertices, &indices),
-            //Collider::trimesh(vertices, indices), // trimesh is shit for dynamic bodies
-
-           
-
-            //Collider::ball(get_asteroid_size(seed) as f32 * 10.0),
-            Restitution {
-                coefficient: 1.,
-                combine_rule: CoefficientCombineRule::Multiply,
-            },
-            Name::new("ASTEROID"),
-            Asteroid{seed: seed, hp: 1 }, // TAG get_asteroid_size(seed) * 2 - 1 
-            
-        )).insert(MaterialMesh2dBundle { //MESH
-            mesh: Mesh2dHandle(meshes.add(mesh)),
-            transform: Transform::from_translation(data.transform.translation)
-                .with_scale(Vec3::splat(2.)),
-            material: materials.add(ColorMaterial::default()), //ColorMaterial::from(texture_handle)
-            ..default()
-        },);
-        
-    }
+    )).insert(MaterialMesh2dBundle { //MESH
+        mesh: Mesh2dHandle(meshes.add(mesh)),
+        transform: transform.with_scale(Vec3::splat(2.)),
+        material: materials.add(ColorMaterial::default()), //ColorMaterial::from(texture_handle)
+        ..default()
+    },);
 }
 
 pub fn spawn_ship(
@@ -524,7 +523,6 @@ pub fn spawn_ship(
             },
             Name::new("Player"),
             ActiveEvents::CONTACT_FORCE_EVENTS,
-            ControlledPlayer,
             Ship,
             Object{
                 id: player_data.object_id,
@@ -946,7 +944,7 @@ pub fn update_chunks_around(
                                         coefficient: 1.,
                                         combine_rule: CoefficientCombineRule::Multiply,
                                     },
-                                    Name::new("PlayerPuppet"),
+                                    Name::new(format!("Player Puppet of {}:{}", object.id, player_data.client_id)),
                                     ActiveEvents::CONTACT_FORCE_EVENTS,
                                     Ship{},
                                     Puppet {

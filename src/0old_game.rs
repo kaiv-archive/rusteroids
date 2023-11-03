@@ -1,5 +1,3 @@
-use std::{f32::consts::PI, ops::Index};
-
 use bevy::{
     prelude::*,
     sprite::{MaterialMesh2dBundle, Mesh2dHandle, Material2d}, render::{render_resource::{PrimitiveTopology, Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages}, mesh::Indices, camera::RenderTarget, view::RenderLayers}, utils::HashMap, ui::RelativeCursorPosition, diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin}, core_pipeline::{tonemapping::Tonemapping, clear_color::ClearColorConfig, bloom::{BloomSettings, BloomCompositeMode}}, window::WindowResized,

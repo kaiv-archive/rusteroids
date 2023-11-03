@@ -1,8 +1,8 @@
-use std::{net::UdpSocket, time::SystemTime, collections::HashMap};
+use std::{net::UdpSocket, time::SystemTime};
 
 use bevy::{prelude::*, core_pipeline::clear_color::ClearColorConfig, window::WindowResized, transform::commands};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use bevy_rapier2d::{prelude::{Velocity, RapierPhysicsPlugin, NoUserData}, render::RapierDebugRenderPlugin};
+use bevy_rapier2d::{prelude::{RapierPhysicsPlugin, NoUserData, Velocity}, render::RapierDebugRenderPlugin};
 use bevy_renet::{renet::{*, transport::*}, RenetServerPlugin, transport::NetcodeServerPlugin};
 use renet_visualizer::RenetServerVisualizer;
 use bevy_egui::{egui::{self, Style, Visuals, epaint::Shadow, Color32, Rounding, Align, Stroke, FontId}, EguiContexts, EguiPlugin};
@@ -50,7 +50,7 @@ fn main(){
     app.insert_resource(LoadedChunks{chunks: vec![]});
     app.insert_resource(MapSettings{
         last_id: 0,
-        max_size: Vec2{x: 5., y: 2.},
+        max_size: Vec2{x: 1., y: 1.},
         single_chunk_size: Vec2{x: 500., y: 500.},
         debug_render: true,
     });
@@ -72,7 +72,6 @@ fn main(){
 
         
         (snap_objects, update_chunks_around).chain(),
-        spawn_asteroid,
         // multiplayer connection systems
         send_message_system,
         receive_message_system,
@@ -80,7 +79,6 @@ fn main(){
     ).run_if(in_state(ServerState::Running)));
     //app.add_systems(OnExit(ServerState::Running), cleanup_menu)
 
-    app.add_event::<SpawnAsteroid>();
     app.add_event::<ServerEvent>();
     
 
@@ -170,12 +168,10 @@ fn setup_game(
     settings: Res<ServerSettings>,
     map: ResMut<MapSettings>,
     mut window: Query<&mut Window>,
-    mut asteroid_event: EventWriter<SpawnAsteroid>,
     mut loaded_chunks: ResMut<LoadedChunks>,
 ){
     // INIT SERVER   
-
-    let server = RenetServer::new(ConnectionConfig::default());
+    let server = RenetServer::new(connection_config());
     commands.insert_resource(server);
     
     println!("PORT IS {}", settings.port);
@@ -222,32 +218,9 @@ fn setup_game(
             loaded_chunks.chunks.push(Chunk { pos: Vec2::from((x as f32, y as f32)) });
         }
     }
+    
     // SPAWN ASTEROIDS
-    //for x in 0..(map.max_size.x as i32){
-    //    for y in 0..(map.max_size.y as i32){
-    //        for _ in 0..((rand::random::<f32>() * 4.) as i32){
-    //            let x = x as f32;
-    //            let y = y as f32;
-    //            asteroid_event.send(SpawnAsteroid {
-    //                transform: Transform::from_xyz(
-    //                    x * map.single_chunk_size.x + map.single_chunk_size.x * rand::random::<f32>(), 
-    //                    y * map.single_chunk_size.y + map.single_chunk_size.y * rand::random::<f32>(), 
-    //                    0.),
-    //                velocity: Velocity {
-    //                    linvel: Vec2::from((
-    //                        rand::random::<f32>() - 0.5,
-    //                        rand::random::<f32>() - 0.5
-    //                    )) * 1000.,
-    //                    angvel: rand::random::<f32>() - 0.5
-    //                },
-    //                seed: rand::random::<u64>()
-    //            });
-    //        }
-    //    }
-    //}
-    //app.add_systems(Update, send_message_system);
-    //app.add_systems(Update, receive_message_system);
-    //app.add_systems(Update, handle_events_system);
+
     // INIT GAME
 }
 
@@ -272,24 +245,82 @@ fn resize_server_camera(
 }
 
 // Systems
-fn send_message_system(mut server: ResMut<RenetServer>) {
-    // let channel_id = 0;
-    // Send a text message for all clients
-    // The enum DefaultChannel describe the channels used by the default configuration
-    //server.broadcast_message(DefaultChannel::ReliableOrdered, "server message".as_bytes().to_vec());
+fn send_message_system(
+    mut server: ResMut<RenetServer>,
+    clients_data: Res<ClientsData>,
+    mut commands: Commands,
+    mut objects_q: Query<(&Object, &Velocity, &Transform), (With<Object>, Without<Puppet>)>
+) {
+
+    // todo: SEND ONLY 9 CHUNKS AROUND!!! (or no...)
+
+    let mut data: Vec<ObjectData> = vec![];
+    for object in objects_q.iter(){
+        let (object, velocity, transform) = object;
+        data.push(
+            ObjectData{
+                object: object.clone(),
+                angular_velocity: velocity.angvel,
+                linear_velocity: velocity.linvel,
+                translation: transform.translation,
+                rotation: transform.rotation,
+            }
+        )
+    }
+
+
+    for client_id in server.clients_id().into_iter() {
+        
+
+        let msg = Message::Update {
+            data: data.clone()
+        };
+        let encoded: Vec<u8> = bincode::serialize(&msg).unwrap();
+        server.send_message(client_id, ServerChannel::Fast, encoded);
+    }
 }
 
 
-fn receive_message_system(mut server: ResMut<RenetServer>) {
+fn receive_message_system(
+    mut server: ResMut<RenetServer>,
+    clients_data: Res<ClientsData>,
+    mut commands: Commands,
+    mut ships_q: Query<(&mut Velocity, &Transform), (With<Ship>, Without<Puppet>)>
+) {
      // Send a text message for all clients
     for client_id in server.clients_id().into_iter() {
-        while let Some(_message) = server.receive_message(client_id, DefaultChannel::ReliableOrdered) {
+        while let Some(message) = server.receive_message(client_id, ClientChannel::Fast) {
+            let msg: Message = bincode::deserialize::<Message>(&message).unwrap();
+            match msg {
+                Message::Inputs{ keys, rotation_direction } => {
+                    let client_data_op = clients_data.get_option_by_client_id(client_id);
+                    if client_data_op.is_some() {
+                        let client_data = clients_data.get_by_client_id(client_id);
+                        let res = ships_q.get_mut(client_data.entity);
+
+                        if res.is_ok(){
+                            let (mut velocity, transform) = res.unwrap();
+    
+                            velocity.angvel += rotation_direction.clamp(-3., 3.) * 0.01;
+        
+                            let mut target_direction = Vec2::ZERO;
+                            if keys.up    {target_direction.y += 1.5;} //  || buttons.pressed(MouseButton::Right
+                            if keys.down  {target_direction.y -= 0.75;}
+                            if keys.right {target_direction.x += 1.0;}
+                            if keys.left  {target_direction.x -= 1.0;}
+                            
+                            velocity.linvel += Vec2::from((transform.up().x, transform.up().y)) * target_direction.y * 2.0;
+                            velocity.linvel += Vec2::from((transform.right().x, transform.right().y)) * target_direction.x * 2.0;
+                        }
+                    }
+                }
+                msg_type => {
+                    warn!("Unhandled message with id {} recived on client!", u8::from(msg_type));
+                }
+            }
            // println!("{}", String::from_utf8(message.to_vec()).unwrap());
         }
-        while let Some(_message) = server.receive_message(client_id, DefaultChannel::ReliableUnordered) {
-            // println!("{}", String::from_utf8(message.to_vec()).unwrap());
-        }
-        while let Some(_message) = server.receive_message(client_id, DefaultChannel::Unreliable) {
+        while let Some(_message) = server.receive_message(client_id, ClientChannel::Garanteed) {
             // println!("{}", String::from_utf8(message.to_vec()).unwrap());
         }
     }
@@ -332,31 +363,43 @@ fn handle_events_system(
                 
                 /* SPAWN */
                 let object_id = map.new_id();
-                clients_data.add(
-                    ClientData { 
-                        client_id:*client_id,
-                        object_id: object_id,
-                        style: data[3],
-                        color: [data[0] as f32 / 255., data[1] as f32 / 255., data[2] as f32 / 255.], 
-                        name: name.to_string() 
-                });
-                let player_data = clients_data.get_by_client_id(*client_id);
-                spawn_ship(false, &mut meshes, &mut materials, &mut commands, player_data);
+
+                let for_spawn_cl_data = ClientData::for_spawn(data[3], [data[0] as f32 / 255., data[1] as f32 / 255., data[2] as f32 / 255.], object_id);
+                let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &for_spawn_cl_data);
+
+
+
+                let new_client_data = ClientData { 
+                    client_id:*client_id,
+                    object_id: object_id,
+                    entity: entity,
+                    style: data[3],
+                    color: [data[0] as f32 / 255., data[1] as f32 / 255., data[2] as f32 / 255.], 
+                    name: name.to_string() 
+                };
+                clients_data.add(new_client_data.clone());
+                println!("register new client with id {}", client_id);
 
                 
 
                 
                 // SEND DATA TO CONNECTED PLAYER
-                let msg = MessageType::OnConnect{
+                let msg = Message::OnConnect{
                     clients_data: ClientsData::default(),
                     max_size: map.max_size,
                     single_chunk_size: map.single_chunk_size,
+                    ship_object_id: object_id,
                 };
                 let encoded: Vec<u8> = bincode::serialize(&msg).unwrap();
-                server.send_message(*client_id, DefaultChannel::ReliableOrdered, encoded);
+                server.send_message(*client_id, ServerChannel::Garanteed, encoded);
+
+
+
 
                 // SEND CONNECTION MESSAGE TO ALL
-                //server.broadcast_message(DefaultChannel::ReliableOrdered, message)
+                let msg = Message::NewConnection {client_data: new_client_data};
+                let encoded: Vec<u8> = bincode::serialize(&msg).unwrap();
+                server.broadcast_message(ServerChannel::Garanteed, encoded);
             }
             ServerEvent::ClientDisconnected { client_id, reason } => {
                 visualizer.remove_client(*client_id);

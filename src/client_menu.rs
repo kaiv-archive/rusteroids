@@ -1,7 +1,6 @@
 use std::f32::consts::PI;
-use bevy::{render::{view::{window, RenderLayers}, mesh::Indices, render_resource::{PrimitiveTopology, TextureDescriptor, Extent3d, TextureDimension, TextureFormat, TextureUsages}, camera::RenderTarget}, prelude::*, app::AppExit, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::{BloomCompositeMode, BloomSettings}, clear_color::ClearColorConfig}};
-use bevy_egui::{egui::{self, Style, Visuals, epaint::{Shadow, self, Vertex, Hsva}, Color32, Rounding, FontDefinitions, Align, Stroke, FontId, WidgetInfo, Frame, emath, Pos2, vec2}, EguiContexts, EguiUserTextures};
-use bevy::prelude::*;
+use bevy::{render::{view::RenderLayers, render_resource::{TextureDescriptor, Extent3d, TextureDimension, TextureFormat, TextureUsages}, camera::RenderTarget}, prelude::*, app::AppExit, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::{BloomCompositeMode, BloomSettings}, clear_color::ClearColorConfig}};
+use bevy_egui::{egui::{self, Style, Visuals, epaint::Shadow, Color32, Rounding, Align, Stroke, FontId}, EguiContexts, EguiUserTextures};
 use rand::random;
 
 use crate::{game::*, InitClient, ConnectProperties, ClientState};
@@ -88,6 +87,7 @@ pub fn setup_preview_camera(
         client_id: 0,
         object_id: 0,
         style: 0,
+        entity: Entity::PLACEHOLDER,
         color: [1.; 3],
         name: "".into(),
     });

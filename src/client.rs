@@ -1,13 +1,10 @@
-//#![windows_subsystem = "windows"]
-use std::{net::{UdpSocket, SocketAddr}, time::SystemTime, path::Path, f32::consts::PI, collections::BTreeMap, ops::RangeInclusive, any};
+use std::{net::UdpSocket, time::SystemTime};
 
-use bevy::{render::{view::window, mesh::Indices, render_resource::PrimitiveTopology, color::SrgbColorSpace}, window::WindowResized, asset::FileAssetIo, utils::label, sprite::{MaterialMesh2dBundle, Mesh2dHandle}, input::keyboard::KeyboardInput, prelude::*, DefaultPlugins, app::AppExit, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::BloomCompositeMode}, transform::commands};
-use bevy_egui::{egui::{self, Style, Visuals, epaint::{Shadow, self, Vertex, Hsva}, Color32, Rounding, FontDefinitions, Align, Stroke, FontId, WidgetInfo, Frame, emath, Pos2, vec2}, EguiContexts};
-use bevy_inspector_egui::{quick::WorldInspectorPlugin, bevy_egui::{EguiPlugin, EguiContext}};
-use bevy_rapier2d::na::{Translation, U4};
-use bevy_renet::{renet::{*, transport::*}, RenetServerPlugin, transport::{NetcodeServerPlugin, NetcodeClientPlugin}, RenetClientPlugin};
-use json::object;
-use rand::random;
+use bevy::{prelude::*, DefaultPlugins, utils::HashMap, transform::commands};
+
+use bevy_inspector_egui::{quick::WorldInspectorPlugin, bevy_egui::EguiPlugin};
+use bevy_rapier2d::prelude::Velocity;
+use bevy_renet::{renet::{*, transport::*}, transport::NetcodeClientPlugin, RenetClientPlugin};
 use renet_visualizer::RenetServerVisualizer;
 
 #[path = "client_menu.rs"] mod client_menu;
@@ -94,12 +91,12 @@ fn main(){
         Update, 
         (
             debug_chunk_render,
-                    
-            (snap_objects, update_chunks_around).chain(),
-            spawn_asteroid,
+            
 
-            receive_message_system,
-            send_message_system,
+
+            (receive_message_system, snap_objects, update_chunks_around, camera_follow).chain(),
+            handle_inputs_system,
+            
     ).run_if(in_state(ClientState::InGame)));
     app.add_systems(
         OnExit(ClientState::InGame), 
@@ -114,7 +111,6 @@ fn main(){
     app.add_event::<SpawnMenuBeam>();
     app.add_event::<InitClient>();
 
-    app.add_event::<SpawnAsteroid>();
 
     game::init_pixel_camera(&mut app);
 
@@ -189,60 +185,170 @@ fn init_client(
             socket
         ).unwrap();
 
-        clients_data.add(
-            ClientData {
-                client_id: 0,
-                object_id: 1,
-                style: e.style,
-                color: color,
-                name: "CURSED".into()
-            }
-        );
-        let player_data = clients_data.get_by_client_id(0);
-        spawn_ship(false, &mut meshes, &mut materials, &mut commands, player_data);
+        
+        
+        let for_spawn_cl_data = ClientData::for_spawn(e.style, color, 0);
+
+        let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &for_spawn_cl_data);
+        commands.entity(entity).insert(CameraFollow);
+        /*let client_data = ClientData {
+            client_id: 0,
+            object_id: 1,
+            style: e.style,
+            entity: entity,
+            color: color,
+            name: "SELF".into()
+        };*/
+
+        //clients_data.add(client_data);
 
 
-        commands.insert_resource(RenetClient::new(ConnectionConfig::default()));
+        //let player_data = clients_data.get_by_client_id(0);
+        
+
+
+        commands.insert_resource(RenetClient::new(connection_config()));
         commands.insert_resource(transport);
     }
 }
 
-
-
-fn send_message_system(
-    mut client: ResMut<RenetClient>
+fn send_message(
+    renet_client: &mut ResMut<RenetClient>,
+    chanel: ClientChannel,
+    message: Message
 ){
-    // Send a text message to the server
-    //client.send_message(DefaultChannel::ReliableOrdered, "HI FROM CLIENT!".as_bytes().to_vec());
+    let encoded_message: Vec<u8> = bincode::serialize(&message).unwrap();
+    renet_client.send_message(chanel, encoded_message);
+}
+
+fn handle_inputs_system(
+    mut renet_client: ResMut<RenetClient>,
+    mut player_data: Query<(&mut Velocity, &Transform, &Object), With<CameraFollow>>, 
+    keys: Res<Input<KeyCode>>,
+    buttons: Res<Input<MouseButton>>,
+    window: Query<&mut Window>,
+    camera_q: Query<(&Camera, &GlobalTransform), (With<Camera>, Without<PixelCamera>)>,
+){
+    let mut up = false;
+    let mut down = false;
+    let mut right = false;
+    let mut left = false;
+
+    if keys.pressed(KeyCode::W){up = true} //  || buttons.pressed(MouseButton::Right
+    if keys.pressed(KeyCode::S){down = true}
+    if keys.pressed(KeyCode::A){left = true}
+    if keys.pressed(KeyCode::D){right = true}
+
+    let (mut vel, transform, object) = player_data.single_mut();
+
+    
+    let mut target_angular_vel: f32 = 0.;
+    let window = window.single();
+    if let Ok(t) = camera_q.get_single(){
+        let (camera, camera_transform) = t;
+        if buttons.pressed(MouseButton::Right){
+            if let Some(world_position) = window.cursor_position()
+                .and_then(|cursor| camera.viewport_to_world(camera_transform, cursor))
+                .map(|ray| ray.origin.truncate())
+            {
+                let target_vector = world_position;// - Vec2{x: transform.translation.x, y: transform.translation.y}; 
+                let pos = Vec2{x: transform.up().x, y: transform.up().y};
+                let target_angle = (target_vector - pos).angle_between(pos);
+                if !target_angle.is_nan(){
+                    target_angular_vel = -target_angle;
+                }
+            }
+        }
+    }
+    let pressed_keys = PressedKeys{ up, down, right, left };
+
+    send_message(&mut renet_client, ClientChannel::Fast, Message::Inputs { keys: pressed_keys, rotation_direction: target_angular_vel });
+
+    //println!("{:?}", (up, down, right, left));
+}
+
+#[derive(Component)]
+struct CameraFollow;
+
+fn camera_follow(
+    player_data: Query<&Transform, (With<CameraFollow>, Without<Camera>)>,
+    mut camera_translation: Query<&mut Transform, (With<Camera>, With<PixelCamera>, Without<Object>)>,
+){
+    camera_translation.single_mut().translation = player_data.single().translation;
 }
 
 fn receive_message_system(
     mut client: ResMut<RenetClient>,
     mut map: ResMut<MapSettings>,
     mut next_state: ResMut<NextState<ClientState>>,
+    //transport: Res<NetcodeClientTransport>,
+    mut local_clients_data: ResMut<ClientsData>,
+    mut commands: Commands,
+    mut objects_q: Query<(Entity, &Object, &mut Velocity, &mut Transform), (With<Object>, Without<Puppet>)>,
+    mut cached_entities: Local<HashMap<u64, Entity>> // object_id => entity
 ) {
+    for object in objects_q.iter(){
+        let (entity, object, _, _) = object;
+        let object_id = object.id;
+        if !cached_entities.contains_key(&object_id){
+            cached_entities.insert(object_id, entity);
+        }
+    }
+
+
     if client.is_disconnected(){
         next_state.set(ClientState::Menu);
     }
 
-    while let Some(message) = client.receive_message(DefaultChannel::ReliableOrdered) {
-        let msg: MessageType = bincode::deserialize::<MessageType>(&message).unwrap();
+    while let Some(message) = client.receive_message(ServerChannel::Fast) {
+        let msg: Message = bincode::deserialize::<Message>(&message).unwrap();
         match msg {
-            MessageType::OnConnect{ clients_data, max_size, single_chunk_size } => {
+            Message::Update { data } => {
+                for object_data in data.iter(){
+                    //println!("target {:?} my {:?} vel {:?}", object_data.object.id, my_id, object_data.linear_velocity);
+                    
+
+
+
+
+                    if cached_entities.contains_key(&object_data.object.id){
+                        // UPDATE ENTITY
+                        let (_, _, mut velocity, mut transform) = objects_q.get_mut(*cached_entities.get(&object_data.object.id).unwrap()).unwrap();
+                        velocity.angvel = object_data.angular_velocity;
+                        velocity.linvel = object_data.linear_velocity;
+                        transform.translation = object_data.translation;
+                        transform.rotation = object_data.rotation;
+
+                    } else {
+                        // SPAWN NEW ENTITY
+
+                    }
+                }
+            }
+            msg_type => {
+                warn!("Unhandled message with id {} recived on client!", u8::from(msg_type));
+            }
+        }
+        
+    }
+    while let Some(message) = client.receive_message(ServerChannel::Garanteed) {
+        let msg: Message = bincode::deserialize::<Message>(&message).unwrap();
+        match msg {
+            Message::OnConnect{clients_data, max_size, single_chunk_size, ship_object_id } => {
+                *local_clients_data = clients_data;
                 map.max_size = max_size;
                 map.single_chunk_size = single_chunk_size;
+                commands.entity(*cached_entities.get(&0).unwrap()).insert(Object{id: ship_object_id, object_type: ObjectType::Ship});
             },
-            _ => {}
+            Message::NewConnection { client_data } => {
+                local_clients_data.add(client_data)
+            }
+            msg_type => {
+                warn!("Unhandled message with id {} recived on client!", u8::from(msg_type));
+            }
         }
-
-        // println!("{}", String::from_utf8(message.to_vec()).unwrap());
     }
-    while let Some(_message) = client.receive_message(DefaultChannel::ReliableUnordered) {
-         // println!("{}", String::from_utf8(message.to_vec()).unwrap());
-    }
-    while let Some(_message) = client.receive_message(DefaultChannel::Unreliable) {
-         // println!("{}", String::from_utf8(message.to_vec()).unwrap());
-    }
-    // Send a text message to the server
-    //client.send_message(DefaultChannel::ReliableOrdered, "HI FROM CLIENT!".as_bytes().to_vec());
 }
+// println!("{}", String::from_utf8(message.to_vec()).unwrap());
+// Send a text message to the server
+//client.send_message(DefaultChannel::ReliableOrdered, "HI FROM CLIENT!".as_bytes().to_vec());

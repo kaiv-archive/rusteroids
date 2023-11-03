@@ -1,21 +1,24 @@
-use std::collections::HashMap;
-use bevy::{prelude::{Component, Resource, Event, Vec2, Vec3, Transform, Entity}, ecs::query::Has};
+use std::{collections::HashMap, time::Duration};
+use bevy::{prelude::{Component, Resource, Event, Vec2, Vec3, Transform, Entity, Quat}, ecs::query::Has};
 use bevy_rapier2d::prelude::Velocity;
+use bevy_renet::renet::{ChannelConfig, SendType, ConnectionConfig};
 use serde::{Serialize, Deserialize};
 
 
 #[derive(Serialize, Deserialize)]
-pub enum MessageType{
+pub enum Message{
     OnConnect{
         clients_data: ClientsData,
+        ship_object_id: u64,
         max_size: Vec2,
         single_chunk_size: Vec2,
     }, // MAP AND CLIENT DATA
     Update{
-
+        data: Vec<ObjectData>
     }, // DATA ABOUT CHUNKS AROUND
     Inputs{
-        
+        keys: PressedKeys,
+        rotation_direction: f32,
     }, // CLIENT INPUTS
     ChatMessage{
         sender_id: u64,
@@ -31,6 +34,41 @@ pub enum MessageType{
         reason: String
     }, // REASON
     ERR,
+}
+
+#[derive(Serialize, Deserialize)]
+#[derive(Clone)]
+pub struct ObjectData{
+    pub object: Object,
+    pub angular_velocity: f32,
+    pub linear_velocity: Vec2,
+    pub translation: Vec3,
+    pub rotation: Quat,
+}
+
+
+
+#[derive(Serialize, Deserialize)]
+pub struct PressedKeys{
+    pub up: bool,
+    pub down: bool,
+    pub right: bool,
+    pub left: bool
+}
+
+impl From<Message> for u8 {
+    fn from(channel_id: Message) -> Self {
+        match channel_id {
+            Message::OnConnect{clients_data: _, max_size: _, single_chunk_size: _, ship_object_id: _ } => {0},
+            Message::Update{data: _} => {1},
+            Message::Inputs {keys: _, rotation_direction: _ } => {2},
+            Message::ChatMessage{sender_id: _,message: _,} => {3},
+            Message::NewConnection{client_data: _} => {4},
+            Message::NewDisconnection{id: _} => {5},
+            Message::Kick{reason: _} => {6},
+            Message::ERR => {7},
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -54,6 +92,7 @@ pub struct ClientsData{
 pub struct ClientData{ 
     pub client_id: u64,
     pub object_id: u64,
+    pub entity: Entity,
     pub style: u8,
     pub color: [f32; 3],
     pub name: String,
@@ -66,6 +105,25 @@ impl Default for ClientsData {
         }
     }
 }
+
+impl ClientData{
+    pub fn for_spawn(
+        style: u8,
+        color: [f32; 3],
+        object_id: u64,
+    ) -> Self{
+        ClientData {
+            client_id: 0,
+            object_id: object_id,
+            style: style,
+            entity: Entity::PLACEHOLDER,
+            color: color,
+            name: "PLACEHOLDER".into()
+        }
+    }
+}
+
+
 impl ClientsData{
     pub fn clean_exclude_me(&mut self){
         let to_save = self.get_by_client_id(0).clone();
@@ -78,6 +136,9 @@ impl ClientsData{
     }
     pub fn get_by_client_id(&self, key: u64) -> &ClientData{
         self.data.get(&key).unwrap()
+    }
+    pub fn get_option_by_client_id(&self, key: u64) -> Option<&ClientData>{
+        self.data.get(&key)
     }
     pub fn get_mut_by_object_id(&mut self, key: u64) -> &mut ClientData{
         self.data.get_mut(self.binds.get(&key).unwrap()).unwrap()
@@ -174,10 +235,6 @@ pub struct SpawnBullet{
     pub owner: u64 
 }
 
-#[derive(Event)]
-pub struct SpawnAsteroid{ pub transform: Transform, pub velocity: Velocity, pub seed: u64}
-
-
 pub enum GameRenderLayers{
     _Main,
     PixelCamera,
@@ -185,7 +242,8 @@ pub enum GameRenderLayers{
 }
 
 
-#[derive (Component)]
+#[derive(Serialize, Deserialize)]
+#[derive (Component, Clone)]
 pub struct Object{
     pub id: u64,
     pub object_type: ObjectType
@@ -210,8 +268,6 @@ pub struct Bullet{pub previous_position: Transform, pub spawn_time: f32, pub own
 #[derive (Component)]
 pub struct Ship;
 
-#[derive (Component)]
-pub struct ControlledPlayer;
 
 #[derive (Component)]
 pub struct Debug;
@@ -224,7 +280,8 @@ pub struct Asteroid{
     pub seed: u64,
     pub hp: u64,
 }
-
+#[derive(Serialize, Deserialize)]
+#[derive (Clone)]
 pub enum ObjectType{
     Asteroid,
     Bullet,
@@ -233,3 +290,79 @@ pub enum ObjectType{
 
 #[derive(Component)]
 pub struct ShipPreview;
+
+pub enum ClientChannel {
+    Fast,
+    Garanteed,
+}
+
+impl From<ClientChannel> for u8 {
+    fn from(channel_id: ClientChannel) -> Self {
+        match channel_id {
+            ClientChannel::Fast => 0,
+            ClientChannel::Garanteed => 1,
+        }
+    }
+}
+
+impl ClientChannel {
+    pub fn channels_config() -> Vec<ChannelConfig> {
+        vec![
+            ChannelConfig {
+                channel_id: Self::Fast.into(),
+                max_memory_usage_bytes: 5 * 1024 * 1024,
+                send_type: SendType::ReliableOrdered {
+                    resend_time: Duration::ZERO,
+                },
+            },
+            ChannelConfig {
+                channel_id: Self::Garanteed.into(),
+                max_memory_usage_bytes: 5 * 1024 * 1024,
+                send_type: SendType::ReliableOrdered {
+                    resend_time: Duration::from_millis(200),
+                },
+            },
+        ]
+    }
+}
+
+pub enum ServerChannel {
+    Fast,
+    Garanteed,
+}
+
+impl From<ServerChannel> for u8 {
+    fn from(channel_id: ServerChannel) -> Self {
+        match channel_id {
+            ServerChannel::Fast => 0,
+            ServerChannel::Garanteed => 1,
+        }
+    }
+}
+
+impl ServerChannel {
+    pub fn channels_config() -> Vec<ChannelConfig> {
+        vec![
+            ChannelConfig {
+                channel_id: Self::Fast.into(),
+                max_memory_usage_bytes: 10 * 1024 * 1024,
+                send_type: SendType::Unreliable,
+            },
+            ChannelConfig {
+                channel_id: Self::Garanteed.into(),
+                max_memory_usage_bytes: 10 * 1024 * 1024,
+                send_type: SendType::ReliableOrdered {
+                    resend_time: Duration::from_millis(200),
+                },
+            },
+        ]
+    }
+}
+
+pub fn connection_config() -> ConnectionConfig {
+    ConnectionConfig {
+        available_bytes_per_tick: 1024 * 1024,
+        client_channels_config: ClientChannel::channels_config(),
+        server_channels_config: ServerChannel::channels_config(),
+    }
+}
