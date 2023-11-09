@@ -131,6 +131,13 @@ impl ClientsData{
         self.data = HashMap::new();
         self.add(to_save);
     }
+    pub fn get_option_by_object_id(&self, key: u64) -> Option<&ClientData>{
+        let key = self.binds.get(&key);
+        if key.is_some(){
+            return self.data.get(key.unwrap());
+        }
+        return None;
+    }
     pub fn get_by_object_id(&self, key: u64) -> &ClientData{
         self.data.get(self.binds.get(&key).unwrap()).unwrap()
     }
@@ -281,8 +288,8 @@ pub struct Asteroid{
     pub hp: u64,
 }
 #[derive(Serialize, Deserialize)]
-#[derive (Clone)]
-pub enum ObjectType{
+#[derive (Clone)]   // !!!!!!!!!!!!!!!!!!!!!!!!!
+pub enum ObjectType{ // todo: ASTEROID SEED, BULLET OWNER(FOR COLOR), SHIP STYLE INSIDE ENUM!!!
     Asteroid,
     Bullet,
     Ship,

@@ -1,9 +1,8 @@
 use bevy::{
     prelude::*,
-    sprite::{MaterialMesh2dBundle, Mesh2dHandle}, render::{render_resource::{PrimitiveTopology, Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages}, mesh::Indices, camera::RenderTarget, view::RenderLayers}, utils::HashMap, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::{BloomSettings, BloomCompositeMode}, clear_color::ClearColorConfig}, window::WindowResized, input::keyboard::KeyboardInput,
+    sprite::{MaterialMesh2dBundle, Mesh2dHandle}, render::{render_resource::{PrimitiveTopology, Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages}, mesh::Indices, camera::RenderTarget, view::RenderLayers}, utils::HashMap, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::{BloomSettings, BloomCompositeMode}, clear_color::ClearColorConfig}, window::WindowResized,
 };
 
-use bevy_hanabi::velocity;
 use bevy_rapier2d::prelude::*;
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
@@ -926,39 +925,43 @@ pub fn update_chunks_around(
                             },
                             ObjectType::Ship => {
                                 //todo ЗАМЕНИТЬ НА spawn/get_ship_bundle
-                                let player_data = clients_data.get_by_object_id(object.id);
-                                let entity = spawn_ship(true, &mut meshes, &mut materials, &mut commands, player_data);
+                                
+                                let player_data = clients_data.get_option_by_object_id(object.id);
+                                if player_data.is_some(){
+                                    let player_data = player_data.unwrap();
+                                    let entity = spawn_ship(true, &mut meshes, &mut materials, &mut commands, player_data);
 
-                                commands.entity(entity).insert((
-                                    RigidBody::Dynamic,
-                                    **velocity,
-                                    Friction{ // DISABLE ROTATING WHET COLLIDING TO ANYTHING ( MAYBE REPLACE IT ONLY FOR WALLS FOR FUN )
-                                        coefficient: 0.0,
-                                        combine_rule: CoefficientCombineRule::Min
-                                    },
-                                    GravityScale(0.0),
-                                    Sleeping::disabled(),
-                                    Ccd::enabled(),
-                                    Collider::triangle(Vec2::new(0., 0.5), Vec2::new(-0.33, -0.4), Vec2::new(0.33, -0.4)),
-                                    Restitution {
-                                        coefficient: 1.,
-                                        combine_rule: CoefficientCombineRule::Multiply,
-                                    },
-                                    Name::new(format!("Player Puppet of {}:{}", object.id, player_data.client_id)),
-                                    ActiveEvents::CONTACT_FORCE_EVENTS,
-                                    Ship{},
-                                    Puppet {
-                                        id: object.id,
-                                        binded_chunk: Chunk {
-                                            pos: *chunk
-                                        }
-                                    },
-                                    Object{
-                                        id: object.id,
-                                        object_type: ObjectType::Ship
-                                    },
-                                    transform.with_translation(pos),
-                                ));
+                                    commands.entity(entity).insert((
+                                        RigidBody::Dynamic,
+                                        **velocity,
+                                        Friction{ // DISABLE ROTATING WHET COLLIDING TO ANYTHING ( MAYBE REPLACE IT ONLY FOR WALLS FOR FUN )
+                                            coefficient: 0.0,
+                                            combine_rule: CoefficientCombineRule::Min
+                                        },
+                                        GravityScale(0.0),
+                                        Sleeping::disabled(),
+                                        Ccd::enabled(),
+                                        Collider::triangle(Vec2::new(0., 0.5), Vec2::new(-0.33, -0.4), Vec2::new(0.33, -0.4)),
+                                        Restitution {
+                                            coefficient: 1.,
+                                            combine_rule: CoefficientCombineRule::Multiply,
+                                        },
+                                        Name::new(format!("Player Puppet of {}:{}", object.id, player_data.client_id)),
+                                        ActiveEvents::CONTACT_FORCE_EVENTS,
+                                        Ship{},
+                                        Puppet {
+                                            id: object.id,
+                                            binded_chunk: Chunk {
+                                                pos: *chunk
+                                            }
+                                        },
+                                        Object{
+                                            id: object.id,
+                                            object_type: ObjectType::Ship
+                                        },
+                                        transform.with_translation(pos),
+                                    ));
+                                }
                             }
                         }
                     }

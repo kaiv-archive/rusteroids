@@ -285,6 +285,7 @@ fn receive_message_system(
     mut local_clients_data: ResMut<ClientsData>,
     mut commands: Commands,
     mut objects_q: Query<(Entity, &Object, &mut Velocity, &mut Transform), (With<Object>, Without<Puppet>)>,
+    mut loaded_chunks: ResMut<LoadedChunks>,
     mut cached_entities: Local<HashMap<u64, Entity>> // object_id => entity
 ) {
     for object in objects_q.iter(){
@@ -339,6 +340,11 @@ fn receive_message_system(
                 map.max_size = max_size;
                 map.single_chunk_size = single_chunk_size;
                 commands.entity(*cached_entities.get(&0).unwrap()).insert(Object{id: ship_object_id, object_type: ObjectType::Ship});
+                for x in -1..(map.max_size.x as i32 + 1){ // include shadow chunks
+                    for y in -1..(map.max_size.y as i32 + 1){
+                        loaded_chunks.chunks.push(Chunk { pos: Vec2::from((x as f32, y as f32)) });
+                    }
+                }
             },
             Message::NewConnection { client_data } => {
                 local_clients_data.add(client_data)

@@ -182,7 +182,9 @@ pub fn egui_based_menu(
 
     let mut fonts = egui::FontDefinitions::default();
         fonts.font_data.insert("MinecraftRegular".to_owned(),
-        egui::FontData::from_static(include_bytes!("../assets/fonts/F77MinecraftRegular-0VYv.ttf") )
+        //egui::FontData::from_static(include_bytes!("../assets/fonts/F77MinecraftRegular-0VYv.ttf") )
+        //egui::FontData::from_static(include_bytes!("../assets/fonts/TerminusTTF-4.49.3.ttf") )
+        egui::FontData::from_static(include_bytes!("../assets/fonts/unifont-15.1.04.otf") )
     );
     
     fonts.families.insert(egui::FontFamily::Name("MinecraftRegular".into()), vec!["MinecraftRegular".to_owned()]);
