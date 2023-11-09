@@ -45,12 +45,7 @@ fn main(){
     app.insert_resource(RenetServerVisualizer::<200>::default());
     let client = RenetClient::new(ConnectionConfig::default());
     app.insert_resource(client);
-    app.insert_resource(MapSettings{
-        last_id: 0,
-        max_size: Vec2{x: 5., y: 5.},
-        single_chunk_size: Vec2{x: 500., y: 500.},
-        debug_render: true,
-    });
+    app.insert_resource(GlobalConfig::default());
     app.insert_resource(ClientsData::default());
     app.insert_resource(LoadedChunks{chunks: vec![]});
     app.add_plugins((DefaultPlugins.set(
@@ -279,7 +274,7 @@ fn camera_follow(
 
 fn receive_message_system(
     mut client: ResMut<RenetClient>,
-    mut map: ResMut<MapSettings>,
+    mut cfg: ResMut<GlobalConfig>,
     mut next_state: ResMut<NextState<ClientState>>,
     //transport: Res<NetcodeClientTransport>,
     mut local_clients_data: ResMut<ClientsData>,
@@ -335,13 +330,12 @@ fn receive_message_system(
     while let Some(message) = client.receive_message(ServerChannel::Garanteed) {
         let msg: Message = bincode::deserialize::<Message>(&message).unwrap();
         match msg {
-            Message::OnConnect{clients_data, max_size, single_chunk_size, ship_object_id } => {
+            Message::OnConnect{clients_data, config, ship_object_id} => {
                 *local_clients_data = clients_data;
-                map.max_size = max_size;
-                map.single_chunk_size = single_chunk_size;
+                *cfg = config;
                 commands.entity(*cached_entities.get(&0).unwrap()).insert(Object{id: ship_object_id, object_type: ObjectType::Ship});
-                for x in -1..(map.max_size.x as i32 + 1){ // include shadow chunks
-                    for y in -1..(map.max_size.y as i32 + 1){
+                for x in -1..(cfg.max_size.x as i32 + 1){ // include shadow chunks
+                    for y in -1..(cfg.max_size.y as i32 + 1){
                         loaded_chunks.chunks.push(Chunk { pos: Vec2::from((x as f32, y as f32)) });
                     }
                 }

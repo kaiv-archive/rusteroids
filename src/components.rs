@@ -10,8 +10,7 @@ pub enum Message{
     OnConnect{
         clients_data: ClientsData,
         ship_object_id: u64,
-        max_size: Vec2,
-        single_chunk_size: Vec2,
+        config: GlobalConfig
     }, // MAP AND CLIENT DATA
     Update{
         data: Vec<ObjectData>
@@ -59,7 +58,7 @@ pub struct PressedKeys{
 impl From<Message> for u8 {
     fn from(channel_id: Message) -> Self {
         match channel_id {
-            Message::OnConnect{clients_data: _, max_size: _, single_chunk_size: _, ship_object_id: _ } => {0},
+            Message::OnConnect{clients_data: _, config: _, ship_object_id: _ } => {0},
             Message::Update{data: _} => {1},
             Message::Inputs {keys: _, rotation_direction: _ } => {2},
             Message::ChatMessage{sender_id: _,message: _,} => {3},
@@ -188,17 +187,29 @@ pub enum ApplyCameraSettings{
     DebandDither,
 }
 
-
+#[derive(Serialize, Deserialize)]
+#[derive (Clone)]
 #[derive (Resource)]
-pub struct MapSettings{
+pub struct GlobalConfig{
     pub last_id: u64,
     pub max_size: Vec2, //          !!!MUST BE INTEGER!!!
     pub single_chunk_size: Vec2, // !!!MUST BE INTEGER!!!
     pub debug_render: bool,
+    pub asteroid_hp: [i8; 3],
+}
+impl Default for GlobalConfig {
+    fn default() -> Self {
+        GlobalConfig{
+            last_id: 0,
+            max_size: Vec2{x: 5., y: 5.},
+            single_chunk_size: Vec2{x: 500., y: 500.},
+            debug_render: false,
+            asteroid_hp: [1, 1, 1],
+        }
+    }
 }
 
-
-impl MapSettings{
+impl GlobalConfig{
     pub fn new_id(&mut self) -> u64{ // ID 0 IS EMPTY!!!!
         self.last_id += 1;
         return self.last_id;
@@ -271,6 +282,8 @@ pub struct Chunk{pub pos: Vec2}
 #[derive (Component)]
 pub struct Bullet{pub previous_position: Transform, pub spawn_time: f32, pub owner: u64}
 
+#[derive (Component)]
+pub struct Asteroid;
 
 #[derive (Component)]
 pub struct Ship;
@@ -282,15 +295,14 @@ pub struct Debug;
 #[derive (Component)]
 pub struct PuppetPlayer;
 
-#[derive (Component)]
-pub struct Asteroid{
-    pub seed: u64,
-    pub hp: u64,
-}
+
 #[derive(Serialize, Deserialize)]
 #[derive (Clone)]   // !!!!!!!!!!!!!!!!!!!!!!!!!
 pub enum ObjectType{ // todo: ASTEROID SEED, BULLET OWNER(FOR COLOR), SHIP STYLE INSIDE ENUM!!!
-    Asteroid,
+    Asteroid{
+        seed: u64,
+        hp: u8,
+    },
     Bullet,
     Ship,
 }

@@ -48,12 +48,7 @@ fn main(){
 
     app.insert_resource(ClientsData::default());
     app.insert_resource(LoadedChunks{chunks: vec![]});
-    app.insert_resource(MapSettings{
-        last_id: 0,
-        max_size: Vec2{x: 1., y: 1.},
-        single_chunk_size: Vec2{x: 500., y: 500.},
-        debug_render: true,
-    });
+    app.insert_resource(GlobalConfig::default());
     app.insert_resource(ServerSettings{
         port: 8567,
         max_clients: 16,
@@ -166,7 +161,7 @@ fn menu(
 fn setup_game(
     mut commands: Commands,
     settings: Res<ServerSettings>,
-    map: ResMut<MapSettings>,
+    cfg: ResMut<GlobalConfig>,
     mut window: Query<&mut Window>,
     mut loaded_chunks: ResMut<LoadedChunks>,
 ){
@@ -193,8 +188,8 @@ fn setup_game(
     let transport = NetcodeServerTransport::new(current_time, server_config, socket).unwrap();
     commands.insert_resource(transport);
     println!("SERVER STARTED!!!!");
-    let size = (map.max_size  + Vec2::from((2., 2.))) * map.single_chunk_size;
-    let mid = map.max_size * map.single_chunk_size / 2.;
+    let size = (cfg.max_size  + Vec2::from((2., 2.))) * cfg.single_chunk_size;
+    let mid = cfg.max_size * cfg.single_chunk_size / 2.;
     let window_size = Vec2::from((window.single_mut().width(), window.single_mut().height()));
     let target_scale = if window_size.x / window_size.y < size.x / size.y{
         size.x / window_size.x
@@ -213,8 +208,8 @@ fn setup_game(
             },
     );
     // INIT CHUNKS
-    for x in -1..(map.max_size.x as i32 + 1){ // include shadow chunks
-        for y in -1..(map.max_size.y as i32 + 1){
+    for x in -1..(cfg.max_size.x as i32 + 1){ // include shadow chunks
+        for y in -1..(cfg.max_size.y as i32 + 1){
             loaded_chunks.chunks.push(Chunk { pos: Vec2::from((x as f32, y as f32)) });
         }
     }
@@ -227,13 +222,13 @@ fn setup_game(
 
 fn resize_server_camera(
     resize_event: Res<Events<WindowResized>>,
-    map: ResMut<MapSettings>,
+    cfg: ResMut<GlobalConfig>,
     mut camera_transform_q: Query<&mut Transform, With<Camera2d>>
 ){
     let mut reader = resize_event.get_reader();
     for e in reader.iter(&resize_event) {
         let window_size = Vec2::from((e.width, e.height));
-        let size = (map.max_size  + Vec2::from((2., 2.))) * map.single_chunk_size;
+        let size = (cfg.max_size  + Vec2::from((2., 2.))) * cfg.single_chunk_size;
         let target_scale = if window_size.x / window_size.y < size.x / size.y{
             size.x / window_size.x
         } else {
@@ -333,7 +328,7 @@ fn handle_events_system(
     mut visualizer: ResMut<RenetServerVisualizer<200>>,
     mut clients_data: ResMut<ClientsData>,
     mut commands: Commands,
-    mut map: ResMut<MapSettings>,
+    mut cfg: ResMut<GlobalConfig>,
     transport: Res<NetcodeServerTransport>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
@@ -362,7 +357,7 @@ fn handle_events_system(
                 };
                 
                 /* SPAWN */
-                let object_id = map.new_id();
+                let object_id = cfg.new_id();
 
                 let for_spawn_cl_data = ClientData::for_spawn(data[3], [data[0] as f32 / 255., data[1] as f32 / 255., data[2] as f32 / 255.], object_id);
                 let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &for_spawn_cl_data);
@@ -385,10 +380,9 @@ fn handle_events_system(
                 
                 // SEND DATA TO CONNECTED PLAYER
                 let msg = Message::OnConnect{
-                    clients_data: ClientsData::default(),
-                    max_size: map.max_size,
-                    single_chunk_size: map.single_chunk_size,
+                    clients_data: clients_data.clone(),
                     ship_object_id: object_id,
+                    config: cfg.clone()
                 };
                 let encoded: Vec<u8> = bincode::serialize(&msg).unwrap();
                 server.send_message(*client_id, ServerChannel::Garanteed, encoded);

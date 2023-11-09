@@ -295,7 +295,7 @@ pub fn get_ship_vertices(style: u8) -> (Vec<Vec<(f32, f32)>>, Vec<Vec<u32>>){
 }
 
 
-fn get_asteroid_size(seed: u64) -> i32{
+fn get_asteroid_size(seed: u64) -> u8{
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
      match rng.gen_range(0..16) {
         0..=6 => 1,
@@ -373,7 +373,7 @@ pub fn spawn_asteroid(
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<ColorMaterial>>,
     commands: &mut Commands,
-    map_settings: &mut ResMut<MapSettings>,
+    cfg: &mut ResMut<GlobalConfig>,
     //asset_server: Res<AssetServer>,
 ){
     let mut mesh = Mesh::new(PrimitiveTopology::LineList);
@@ -402,8 +402,11 @@ pub fn spawn_asteroid(
         Ccd::enabled(),
 
         Object{
-            id: map_settings.new_id(),
-            object_type: ObjectType::Asteroid
+            id: cfg.new_id(),
+            object_type: ObjectType::Asteroid{
+                seed: seed,
+                hp: *cfg.asteroid_hp.get(get_asteroid_size(seed) as usize).unwrap() as u8
+            }
         },
         Collider::convex_decomposition(&vertices, &indices),
         //Collider::trimesh(vertices, indices), // trimesh is shit for dynamic bodies
@@ -416,7 +419,7 @@ pub fn spawn_asteroid(
             combine_rule: CoefficientCombineRule::Multiply,
         },
         Name::new("ASTEROID"),
-        Asteroid{seed: seed, hp: 1 }, // TAG get_asteroid_size(seed) * 2 - 1 
+        Asteroid, // TAG get_asteroid_size(seed) * 2 - 1 
         
     )).insert(MaterialMesh2dBundle { //MESH
         mesh: Mesh2dHandle(meshes.add(mesh)),
@@ -552,18 +555,18 @@ pub fn spawn_ship(
 
 pub fn debug_chunk_render(
     chunks_q: Query<(&Chunk, Entity)>,
-    mut map: ResMut<MapSettings>,
+    mut cfg: ResMut<GlobalConfig>,
     asset_server: Res<AssetServer>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    keys: Res<Input<KeyCode>>,
+    keys: Res<Input<KeyCode>>, // todo: add check previous value
 ){
     if keys.just_pressed(KeyCode::F3){
-        map.debug_render = !map.debug_render;
+        cfg.debug_render = !cfg.debug_render;
     }
 
-    if !map.debug_render {
+    if !cfg.debug_render {
         for (_, e) in chunks_q.iter(){
             commands.entity(e).despawn();
         }
@@ -577,8 +580,8 @@ pub fn debug_chunk_render(
         color: Color::GRAY,
     };
     let mut chunks_around: Vec<Vec2> = vec![];
-    for x in -1..(map.max_size.x as i32+1){
-        for y in -1..(map.max_size.y as i32+1){
+    for x in -1..(cfg.max_size.x as i32+1){
+        for y in -1..(cfg.max_size.y as i32+1){
             chunks_around.push(Vec2{x: x as f32, y: y as f32})
         }
     }
@@ -587,11 +590,11 @@ pub fn debug_chunk_render(
         existing_debug_chunks.push(c.pos);
     }
     for chunk in chunks_around.iter(){
-        let isreal = map.chunk_to_real_chunk_v2(chunk) == *chunk;
-        if map.debug_render {
+        let isreal = cfg.chunk_to_real_chunk_v2(chunk) == *chunk;
+        if cfg.debug_render {
             if !existing_debug_chunks.contains(chunk){
                 let mut mesh = Mesh::new(PrimitiveTopology::LineList);
-                let chunk_size = map.single_chunk_size;
+                let chunk_size = cfg.single_chunk_size;
                 let vec = vec![
                     [-chunk_size.x/2. + 1., -chunk_size.y/2. + 1., 0.],
                     [ chunk_size.x/2. - 1., -chunk_size.y/2. + 1., 0.],
@@ -606,7 +609,7 @@ pub fn debug_chunk_render(
                 } else {
                     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![Color::ORANGE_RED.as_rgba_f32(); 4]);
                 }
-                let real_chunk_pos = map.chunk_to_real_chunk_v2(chunk);
+                let real_chunk_pos = cfg.chunk_to_real_chunk_v2(chunk);
                 commands.spawn((
                     Text2dBundle {
                         text: Text::from_section( format!("{} {}\n({} {})", chunk.x, chunk.y, real_chunk_pos.x, real_chunk_pos.y), text_style.clone())
@@ -634,11 +637,11 @@ pub fn debug_chunk_render(
 }
 
 pub fn snap_objects(                                                     
-    map_settings: ResMut<MapSettings>,
+    cfg: ResMut<GlobalConfig>,
     mut objects: Query<&mut Transform, (With<Object>, Without<Puppet>)>, // ADD SNAPPING TO PUPPETS
 ){
-    let xsize = map_settings.max_size.x * map_settings.single_chunk_size.x;
-    let ysize = map_settings.max_size.y * map_settings.single_chunk_size.y;
+    let xsize = cfg.max_size.x * cfg.single_chunk_size.x;
+    let ysize = cfg.max_size.y * cfg.single_chunk_size.y;
     for mut transform in objects.iter_mut(){
         if transform.translation.x < 0.{
             transform.translation.x = (transform.translation.x + xsize) % xsize;
@@ -666,7 +669,7 @@ pub fn update_chunks_around(
     mut materials: ResMut<Assets<ColorMaterial>>,
 
     chunks_q: Query<(&Chunk, Entity)>,
-    map: ResMut<MapSettings>,
+    cfg: ResMut<GlobalConfig>,
 
     mut puppet_objects: Query<(&mut Transform, &Object, &Puppet, &mut Velocity, Entity), (With<Object>, With<Puppet>)>,
     objects: Query<(&Transform, &Object, &Velocity, Entity), (With<Object>, Without<Puppet>)>,
@@ -700,7 +703,7 @@ pub fn update_chunks_around(
 
     for chunk in chunks_around.iter(){
 
-        let isreal = map.chunk_to_real_chunk_v2(chunk) == *chunk;
+        let isreal = cfg.chunk_to_real_chunk_v2(chunk) == *chunk;
         if isreal {real_chunks.push(*chunk);};
         /*
         if map.debug_render {
@@ -762,7 +765,7 @@ pub fn update_chunks_around(
     let mut real_objects: HashMap<u64, (&Transform, &Object, &Velocity, Entity)> = HashMap::new();
 
     for (transform, object, velocity,  entity) in objects.iter(){
-        let real_chunk_pos = map.pos_to_real_chunk(&transform.translation);
+        let real_chunk_pos = cfg.pos_to_real_chunk(&transform.translation);
         let key = (real_chunk_pos.x as i64, real_chunk_pos.y as i64);
         if real_objects_chunks.contains_key(&key){
             let data = real_objects_chunks.get_mut(&key).unwrap();
@@ -780,20 +783,20 @@ pub fn update_chunks_around(
     
     for (mut puppet_transform, puppet_object, puppet, mut puppet_velocity, puppet_entity) in puppet_objects.iter_mut(){
         
-        let puppet_position_chunk = map.pos_to_chunk(&puppet_transform.translation);
+        let puppet_position_chunk = cfg.pos_to_chunk(&puppet_transform.translation);
         let key = (puppet_object.id, puppet_position_chunk.x as i64, puppet_position_chunk.y as i64);
         if real_objects.contains_key(&puppet_object.id) &&    // COND 1 ( EXISTING OF REAL OBJECT )
         chunks_around.contains(&puppet_position_chunk) &&    // COND 2 ( EXISTING OF REAL CHUNK )
         puppet_position_chunk == puppet.binded_chunk.pos && // COND 3 ( STILL IN THEIR SHADOW CHUNK? )
         !existing_puppets.contains(&key) &&                // COND 4 ( DOES THAT PUPPET ALREADY EXISTS )
                                                             // COND 5 ( DOES REAL OBJECT IN THEIR CHUNK )
-        map.pos_to_real_chunk(&puppet_transform.translation) == map.pos_to_chunk(&real_objects.get(&puppet_object.id).unwrap().0.translation)
+        cfg.pos_to_real_chunk(&puppet_transform.translation) == cfg.pos_to_chunk(&real_objects.get(&puppet_object.id).unwrap().0.translation)
         { 
             // APPLY REAL OBJECT's TRANSFORMS
             existing_puppets.push(key);
             let (transform, _, velocity, _) = real_objects.get(&puppet_object.id).unwrap();
-            let offset = map.chunk_to_offset(&puppet_position_chunk);
-            puppet_transform.translation = (transform.translation % Vec3 { x: map.single_chunk_size.x, y: map.single_chunk_size.y, z: 1. }) + Vec3{x: offset.x, y: offset.y, z:0.};
+            let offset = cfg.chunk_to_offset(&puppet_position_chunk);
+            puppet_transform.translation = (transform.translation % Vec3 { x: cfg.single_chunk_size.x, y: cfg.single_chunk_size.y, z: 1. }) + Vec3{x: offset.x, y: offset.y, z:0.};
             puppet_transform.rotation = transform.rotation;
             puppet_velocity.angvel = velocity.angvel;
             puppet_velocity.linvel = velocity.linvel;
@@ -814,19 +817,19 @@ pub fn update_chunks_around(
     // SPAWN NEW
     for chunk in chunks_around.iter(){
         if !real_chunks.contains(&chunk){ // IF CHUNK IS SHADOW-CHUNK
-            let real_chunk = map.chunk_to_real_chunk_v2(chunk);
+            let real_chunk = cfg.chunk_to_real_chunk_v2(chunk);
             let key = &(real_chunk.x as i64, real_chunk.y as i64);
             if real_objects_chunks.contains_key(key){ // IF ASTEROIDS IN CHUNK
                 for (transform, object, velocity, entity) in real_objects_chunks.get(key).unwrap(){
                     if !existing_puppets.contains(&(object.id, chunk.x as i64, chunk.y as i64)){ // IF NOT ALREADY EXISTS
-                        let pos = (transform.translation % Vec3 { x: map.single_chunk_size.x, y: map.single_chunk_size.y, z: 1. }) + // INCHUNK OFFSET
-                            Vec3{x: chunk.x * map.single_chunk_size.x, y: chunk.y * map.single_chunk_size.y, z: 0.};             // CHUNK OFFSET
+                        let pos = (transform.translation % Vec3 { x: cfg.single_chunk_size.x, y: cfg.single_chunk_size.y, z: 1. }) + // INCHUNK OFFSET
+                            Vec3{x: chunk.x * cfg.single_chunk_size.x, y: chunk.y * cfg.single_chunk_size.y, z: 0.};             // CHUNK OFFSET
                         
                         match object.object_type{
-                            ObjectType::Asteroid => {
+                            ObjectType::Asteroid{ seed, hp } => {
                                 let (asteroid, collider) = asteroid_q.get(*entity).unwrap();
                                 let mut mesh = Mesh::new(PrimitiveTopology::LineList);
-                                let seed = asteroid.seed;
+                                let seed = seed;
                                 let (vec, ind) = generate_asteroid_vertices(seed);
 
                                 mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec.clone());
@@ -852,7 +855,7 @@ pub fn update_chunks_around(
                                         combine_rule: CoefficientCombineRule::Multiply,
                                     },
                                     Name::new("ASTEROID PUPPET"),
-                                    Asteroid{seed: seed, hp: 1 }, // TAG get_asteroid_size(seed) * 2 - 1 
+                                    Asteroid, // TAG get_asteroid_size(seed) * 2 - 1 
                                     Puppet {
                                         id: object.id,
                                         binded_chunk: Chunk {
@@ -861,7 +864,10 @@ pub fn update_chunks_around(
                                     },
                                     Object{
                                         id: object.id,
-                                        object_type: ObjectType::Asteroid
+                                        object_type: ObjectType::Asteroid{
+                                            seed: seed,
+                                            hp: hp
+                                        }
                                     },
                                     Collider::from(collider.raw.clone())
                                 )).insert(MaterialMesh2dBundle { //MESH
