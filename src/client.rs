@@ -184,8 +184,7 @@ fn init_client(
         
         let for_spawn_cl_data = ClientData::for_spawn(e.style, color, 0);
 
-        let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &for_spawn_cl_data);
-        commands.entity(entity).insert(CameraFollow);
+        
         /*let client_data = ClientData {
             client_id: 0,
             object_id: 1,
@@ -224,6 +223,12 @@ fn handle_inputs_system(
     window: Query<&mut Window>,
     camera_q: Query<(&Camera, &GlobalTransform), (With<Camera>, Without<PixelCamera>)>,
 ){
+    let player_data = player_data.get_single_mut();
+    if player_data.is_err(){
+        return;
+    };
+    let (mut vel, transform, object) = player_data.unwrap();
+
     let mut up = false;
     let mut down = false;
     let mut right = false;
@@ -234,8 +239,7 @@ fn handle_inputs_system(
     if keys.pressed(KeyCode::A){left = true}
     if keys.pressed(KeyCode::D){right = true}
 
-    let (mut vel, transform, object) = player_data.single_mut();
-
+    
     
     let mut target_angular_vel: f32 = 0.;
     let window = window.single();
@@ -269,14 +273,22 @@ fn camera_follow(
     player_data: Query<&Transform, (With<CameraFollow>, Without<Camera>)>,
     mut camera_translation: Query<&mut Transform, (With<Camera>, With<PixelCamera>, Without<Object>)>,
 ){
-    camera_translation.single_mut().translation = player_data.single().translation;
+    let camera_translation = camera_translation.get_single_mut();
+    let player_data = player_data.get_single();
+    if camera_translation.is_err() || player_data.is_err(){
+        return;
+    };
+    let mut camera_translation = camera_translation.unwrap();
+    camera_translation.translation = player_data.unwrap().translation;
 }
 
 fn receive_message_system(
     mut client: ResMut<RenetClient>,
     mut cfg: ResMut<GlobalConfig>,
     mut next_state: ResMut<NextState<ClientState>>,
-    //transport: Res<NetcodeClientTransport>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    transport: Res<NetcodeClientTransport>,
     mut local_clients_data: ResMut<ClientsData>,
     mut commands: Commands,
     mut objects_q: Query<(Entity, &Object, &mut Velocity, &mut Transform), (With<Object>, Without<Puppet>)>,
@@ -291,7 +303,6 @@ fn receive_message_system(
         }
     }
 
-
     if client.is_disconnected(){
         next_state.set(ClientState::Menu);
     }
@@ -302,11 +313,6 @@ fn receive_message_system(
             Message::Update { data } => {
                 for object_data in data.iter(){
                     //println!("target {:?} my {:?} vel {:?}", object_data.object.id, my_id, object_data.linear_velocity);
-                    
-
-
-
-
                     if cached_entities.contains_key(&object_data.object.id){
                         // UPDATE ENTITY
                         let (_, _, mut velocity, mut transform) = objects_q.get_mut(*cached_entities.get(&object_data.object.id).unwrap()).unwrap();
@@ -317,7 +323,31 @@ fn receive_message_system(
 
                     } else {
                         // SPAWN NEW ENTITY
+                        match object_data.object.object_type {
+                            ObjectType::Asteroid { seed, hp:_ } => {
+                                spawn_asteroid(
+                                    seed, 
+                                    Velocity { linvel: object_data.linear_velocity, angvel: object_data.angular_velocity }, 
+                                    Transform::from_translation(object_data.translation).with_rotation(object_data.rotation), 
+                                    &mut meshes, 
+                                    &mut materials, 
+                                    &mut commands, 
+                                    &mut cfg
+                                )
+                            },
+                            ObjectType::Bullet => {
 
+                            },
+                            ObjectType::Ship => {
+                                let client_op = local_clients_data.get_option_by_object_id(object_data.object.id);
+                                if client_op.is_some(){
+                                    let client = client_op.unwrap();
+                                    let name = &client.name;
+                                    let e = spawn_ship(false, &mut meshes, &mut materials, &mut commands, client);
+                                    commands.entity(e).insert(Name::new(format!("Player {}", name)));
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -333,9 +363,14 @@ fn receive_message_system(
             Message::OnConnect{clients_data, config, ship_object_id} => {
                 *local_clients_data = clients_data;
                 *cfg = config;
-                commands.entity(*cached_entities.get(&0).unwrap()).insert(Object{id: ship_object_id, object_type: ObjectType::Ship});
-                for x in -1..(cfg.max_size.x as i32 + 1){ // include shadow chunks
-                    for y in -1..(cfg.max_size.y as i32 + 1){
+                let player_data = local_clients_data.get_by_client_id(transport.client_id());
+                let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, player_data);
+
+                //commands.entity(*cached_entities.get(&0).unwrap()).insert(Object{id: ship_object_id, object_type: ObjectType::Ship});
+
+                commands.entity(entity).insert(CameraFollow);
+                for x in -1..(cfg.map_size_chunks.x as i32 + 1){ // include shadow chunks
+                    for y in -1..(cfg.map_size_chunks.y as i32 + 1){
                         loaded_chunks.chunks.push(Chunk { pos: Vec2::from((x as f32, y as f32)) });
                     }
                 }

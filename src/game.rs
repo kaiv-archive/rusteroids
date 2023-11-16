@@ -405,7 +405,7 @@ pub fn spawn_asteroid(
             id: cfg.new_id(),
             object_type: ObjectType::Asteroid{
                 seed: seed,
-                hp: *cfg.asteroid_hp.get(get_asteroid_size(seed) as usize).unwrap() as u8
+                hp: *cfg.asteroid_hp.get(get_asteroid_size(seed) as usize - 1).unwrap() as u8
             }
         },
         Collider::convex_decomposition(&vertices, &indices),
@@ -423,7 +423,7 @@ pub fn spawn_asteroid(
         
     )).insert(MaterialMesh2dBundle { //MESH
         mesh: Mesh2dHandle(meshes.add(mesh)),
-        transform: transform.with_scale(Vec3::splat(2.)),
+        transform: transform.with_scale(Vec3::splat(1.)),
         material: materials.add(ColorMaterial::default()), //ColorMaterial::from(texture_handle)
         ..default()
     },);
@@ -580,8 +580,8 @@ pub fn debug_chunk_render(
         color: Color::GRAY,
     };
     let mut chunks_around: Vec<Vec2> = vec![];
-    for x in -1..(cfg.max_size.x as i32+1){
-        for y in -1..(cfg.max_size.y as i32+1){
+    for x in -1..(cfg.map_size_chunks.x as i32+1){
+        for y in -1..(cfg.map_size_chunks.y as i32+1){
             chunks_around.push(Vec2{x: x as f32, y: y as f32})
         }
     }
@@ -640,8 +640,8 @@ pub fn snap_objects(
     cfg: ResMut<GlobalConfig>,
     mut objects: Query<&mut Transform, (With<Object>, Without<Puppet>)>, // ADD SNAPPING TO PUPPETS
 ){
-    let xsize = cfg.max_size.x * cfg.single_chunk_size.x;
-    let ysize = cfg.max_size.y * cfg.single_chunk_size.y;
+    let xsize = cfg.map_size_chunks.x * cfg.single_chunk_size.x;
+    let ysize = cfg.map_size_chunks.y * cfg.single_chunk_size.y;
     for mut transform in objects.iter_mut(){
         if transform.translation.x < 0.{
             transform.translation.x = (transform.translation.x + xsize) % xsize;
@@ -680,13 +680,6 @@ pub fn update_chunks_around(
     clients_data: Res<ClientsData>
     //ship_q: Query<&Ship, (With<Object>, Without<Puppet>)>,
 ){
-    let font = asset_server.load("fonts/F77MinecraftRegular-0VYv.ttf");
-    let text_style = TextStyle {
-        font: font.clone(),
-        font_size: 60.0,
-        color: Color::GRAY,
-    };
-    
 
     let mut chunks_around: Vec<Vec2> = vec![];
     for c in loaded_chunks.chunks.iter(){
@@ -978,3 +971,5 @@ pub fn update_chunks_around(
     
     return ()
 }
+
+

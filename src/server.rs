@@ -48,7 +48,13 @@ fn main(){
 
     app.insert_resource(ClientsData::default());
     app.insert_resource(LoadedChunks{chunks: vec![]});
-    app.insert_resource(GlobalConfig::default());
+    app.insert_resource(GlobalConfig{
+        map_size_chunks: Vec2{
+            x: 5.,
+            y: 8.
+        },
+        ..default()
+    });
     app.insert_resource(ServerSettings{
         port: 8567,
         max_clients: 16,
@@ -161,9 +167,11 @@ fn menu(
 fn setup_game(
     mut commands: Commands,
     settings: Res<ServerSettings>,
-    cfg: ResMut<GlobalConfig>,
+    mut cfg: ResMut<GlobalConfig>,
     mut window: Query<&mut Window>,
     mut loaded_chunks: ResMut<LoadedChunks>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
 ){
     // INIT SERVER   
     let server = RenetServer::new(connection_config());
@@ -188,8 +196,8 @@ fn setup_game(
     let transport = NetcodeServerTransport::new(current_time, server_config, socket).unwrap();
     commands.insert_resource(transport);
     println!("SERVER STARTED!!!!");
-    let size = (cfg.max_size  + Vec2::from((2., 2.))) * cfg.single_chunk_size;
-    let mid = cfg.max_size * cfg.single_chunk_size / 2.;
+    let size = (cfg.map_size_chunks  + Vec2::from((2., 2.))) * cfg.single_chunk_size;
+    let mid = cfg.map_size_chunks * cfg.single_chunk_size / 2.;
     let window_size = Vec2::from((window.single_mut().width(), window.single_mut().height()));
     let target_scale = if window_size.x / window_size.y < size.x / size.y{
         size.x / window_size.x
@@ -208,14 +216,31 @@ fn setup_game(
             },
     );
     // INIT CHUNKS
-    for x in -1..(cfg.max_size.x as i32 + 1){ // include shadow chunks
-        for y in -1..(cfg.max_size.y as i32 + 1){
+    for x in -1..(cfg.map_size_chunks.x as i32 + 1){ // include shadow chunks
+        for y in -1..(cfg.map_size_chunks.y as i32 + 1){
             loaded_chunks.chunks.push(Chunk { pos: Vec2::from((x as f32, y as f32)) });
         }
     }
     
     // SPAWN ASTEROIDS
-
+    for x in 0..cfg.map_size_chunks.x as u32{
+        for y in 0..cfg.map_size_chunks.y as u32{
+            let vel = Velocity{
+                linvel: Vec2 { 
+                    x: (rand::random::<f32>() - 0.5), 
+                    y: (rand::random::<f32>() - 0.5) 
+                } * 500., 
+                angvel: (rand::random::<f32>() - 0.5) * 5.
+            };
+            let position = Transform::from_translation(
+                Vec3::from([
+                    (x as f32 + rand::random::<f32>()) * cfg.single_chunk_size.x,
+                    (y as f32 + rand::random::<f32>()) * cfg.single_chunk_size.y,
+                    0.
+                ]));
+            spawn_asteroid(rand::random::<u64>(), vel, position, &mut meshes, &mut materials, &mut commands, &mut cfg)
+        }
+    }
     // INIT GAME
 }
 
@@ -228,7 +253,7 @@ fn resize_server_camera(
     let mut reader = resize_event.get_reader();
     for e in reader.iter(&resize_event) {
         let window_size = Vec2::from((e.width, e.height));
-        let size = (cfg.max_size  + Vec2::from((2., 2.))) * cfg.single_chunk_size;
+        let size = (cfg.map_size_chunks  + Vec2::from((2., 2.))) * cfg.single_chunk_size;
         let target_scale = if window_size.x / window_size.y < size.x / size.y{
             size.x / window_size.x
         } else {
@@ -376,13 +401,15 @@ fn handle_events_system(
                 println!("register new client with id {}", client_id);
 
                 
-
+                
                 
                 // SEND DATA TO CONNECTED PLAYER
+                let cfg_clone = cfg.clone();
+                cfg.debug_render = false;
                 let msg = Message::OnConnect{
                     clients_data: clients_data.clone(),
                     ship_object_id: object_id,
-                    config: cfg.clone()
+                    config: cfg_clone
                 };
                 let encoded: Vec<u8> = bincode::serialize(&msg).unwrap();
                 server.send_message(*client_id, ServerChannel::Garanteed, encoded);

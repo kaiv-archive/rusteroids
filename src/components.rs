@@ -192,7 +192,7 @@ pub enum ApplyCameraSettings{
 #[derive (Resource)]
 pub struct GlobalConfig{
     pub last_id: u64,
-    pub max_size: Vec2, //          !!!MUST BE INTEGER!!!
+    pub map_size_chunks: Vec2, //          !!!MUST BE INTEGER!!!
     pub single_chunk_size: Vec2, // !!!MUST BE INTEGER!!!
     pub debug_render: bool,
     pub asteroid_hp: [i8; 3],
@@ -201,7 +201,7 @@ impl Default for GlobalConfig {
     fn default() -> Self {
         GlobalConfig{
             last_id: 0,
-            max_size: Vec2{x: 5., y: 5.},
+            map_size_chunks: Vec2{x: 5., y: 5.},
             single_chunk_size: Vec2{x: 500., y: 500.},
             debug_render: false,
             asteroid_hp: [1, 1, 1],
@@ -220,7 +220,7 @@ impl GlobalConfig{
     
     pub fn pos_to_real_chunk(&self, pos: &Vec3) -> Vec2{
         let chunk = self.pos_to_chunk(pos);
-        Vec2{x: chunk.x.rem_euclid(self.max_size.x), y: chunk.y.rem_euclid(self.max_size.y)}
+        Vec2{x: chunk.x.rem_euclid(self.map_size_chunks.x), y: chunk.y.rem_euclid(self.map_size_chunks.y)}
     }
     pub fn pos_to_chunk_v2(&self, pos: &Vec2) -> Vec2{
         Vec2{x: (pos.x / self.single_chunk_size.x).floor(), y: (pos.y / self.single_chunk_size.y).floor()}
@@ -228,11 +228,11 @@ impl GlobalConfig{
     
     pub fn pos_to_real_chunk_v2(&self, pos: &Vec2) -> Vec2{
         let chunk = self.pos_to_chunk_v2(pos);
-        Vec2{x: chunk.x.rem_euclid(self.max_size.x), y: chunk.y.rem_euclid(self.max_size.y)}
+        Vec2{x: chunk.x.rem_euclid(self.map_size_chunks.x), y: chunk.y.rem_euclid(self.map_size_chunks.y)}
     }
 
     pub fn chunk_to_real_chunk_v2(&self, chunk: &Vec2) -> Vec2{
-        Vec2{x: chunk.x.rem_euclid(self.max_size.x), y: chunk.y.rem_euclid(self.max_size.y)}
+        Vec2{x: chunk.x.rem_euclid(self.map_size_chunks.x), y: chunk.y.rem_euclid(self.map_size_chunks.y)}
     }
 
     pub fn chunk_to_offset(&self, chunk: &Vec2) -> Vec2{
