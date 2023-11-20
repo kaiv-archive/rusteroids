@@ -39,7 +39,7 @@ fn main(){
     //app.insert_resource(default_settings);
     app.init_resource::<GameSettings>();
     app.add_state::<ClientState>();
-
+    // todo: USE RAPIER PHYSICS ON CLIENT???
     app.add_plugins(RenetClientPlugin);
     app.add_plugins(NetcodeClientPlugin);
     app.insert_resource(RenetServerVisualizer::<200>::default());
@@ -331,9 +331,10 @@ fn receive_message_system(
                                     Transform::from_translation(object_data.translation).with_rotation(object_data.rotation), 
                                     &mut meshes, 
                                     &mut materials, 
-                                    &mut commands, 
-                                    &mut cfg
-                                )
+                                    &mut commands,
+                                    object_data.object.id,
+                                    cfg.get_asteroid_hp(seed),
+                                );
                             },
                             ObjectType::Bullet => {
 
@@ -344,7 +345,14 @@ fn receive_message_system(
                                     let client = client_op.unwrap();
                                     let name = &client.name;
                                     let e = spawn_ship(false, &mut meshes, &mut materials, &mut commands, client);
-                                    commands.entity(e).insert(Name::new(format!("Player {}", name)));
+                                    commands.entity(e).insert((
+                                        Name::new(format!("Player {}", name)),
+                                        Object{
+                                            id: object_data.object.id,
+                                            object_type: ObjectType::Ship
+                                        }
+                                        
+                                    ));
                                 }
                             }
                         }
@@ -368,7 +376,13 @@ fn receive_message_system(
 
                 //commands.entity(*cached_entities.get(&0).unwrap()).insert(Object{id: ship_object_id, object_type: ObjectType::Ship});
 
-                commands.entity(entity).insert(CameraFollow);
+                commands.entity(entity).insert((
+                    CameraFollow,
+                    Object{
+                        id: ship_object_id,
+                        object_type: ObjectType::Ship
+                    },
+                ));
                 for x in -1..(cfg.map_size_chunks.x as i32 + 1){ // include shadow chunks
                     for y in -1..(cfg.map_size_chunks.y as i32 + 1){
                         loaded_chunks.chunks.push(Chunk { pos: Vec2::from((x as f32, y as f32)) });

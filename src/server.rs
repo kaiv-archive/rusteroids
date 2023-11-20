@@ -238,7 +238,8 @@ fn setup_game(
                     (y as f32 + rand::random::<f32>()) * cfg.single_chunk_size.y,
                     0.
                 ]));
-            spawn_asteroid(rand::random::<u64>(), vel, position, &mut meshes, &mut materials, &mut commands, &mut cfg)
+            let seed = rand::random::<u64>();
+            spawn_asteroid(seed, vel, position, &mut meshes, &mut materials, &mut commands, cfg.new_id(), cfg.get_asteroid_hp(seed));
         }
     }
     // INIT GAME

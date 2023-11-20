@@ -1,6 +1,6 @@
 use std::{net::UdpSocket, time::{SystemTime, Duration}};
 
-use bevy::{prelude::*, asset::debug_asset_server::DebugAssetServerPlugin};
+use bevy::prelude::*;
 use bevy_renet::{renet::{*, transport::*}, RenetServerPlugin, transport::{NetcodeServerPlugin, NetcodeClientPlugin}};
 use bevy_renet::*;
 use renet_visualizer::*;

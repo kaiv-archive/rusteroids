@@ -2,6 +2,8 @@ use std::{collections::HashMap, time::Duration};
 use bevy::{prelude::{Component, Resource, Event, Vec2, Vec3, Transform, Entity, Quat}, ecs::query::Has};
 use bevy_rapier2d::prelude::Velocity;
 use bevy_renet::renet::{ChannelConfig, SendType, ConnectionConfig};
+use rand::{SeedableRng, Rng};
+use rand_chacha::ChaCha8Rng;
 use serde::{Serialize, Deserialize};
 
 
@@ -209,7 +211,20 @@ impl Default for GlobalConfig {
     }
 }
 
+pub fn get_asteroid_size(seed: u64) -> u8{
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+     match rng.gen_range(0..16) {
+        0..=6 => 1,
+        7..=14 => 2,
+        15..=16 => 3,
+        e => {println!("{}", e); 1}
+    }
+}
+
 impl GlobalConfig{
+    pub fn get_asteroid_hp(&mut self, seed: u64) -> u8{
+        *self.asteroid_hp.get(get_asteroid_size(seed) as usize - 1).unwrap() as u8
+    }
     pub fn new_id(&mut self) -> u64{ // ID 0 IS EMPTY!!!!
         self.last_id += 1;
         return self.last_id;

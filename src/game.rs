@@ -295,15 +295,6 @@ pub fn get_ship_vertices(style: u8) -> (Vec<Vec<(f32, f32)>>, Vec<Vec<u32>>){
 }
 
 
-fn get_asteroid_size(seed: u64) -> u8{
-    let mut rng = ChaCha8Rng::seed_from_u64(seed);
-     match rng.gen_range(0..16) {
-        0..=6 => 1,
-        7..=14 => 2,
-        15..=16 => 3,
-        e => {println!("{}", e); 1}
-    }
-}
 
 
 fn generate_asteroid_vertices(seed: u64) -> (Vec<[f32; 3]>, Vec<u32>) {
@@ -373,9 +364,10 @@ pub fn spawn_asteroid(
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<ColorMaterial>>,
     commands: &mut Commands,
-    cfg: &mut ResMut<GlobalConfig>,
+    object_id: u64,
+    hp: u8
     //asset_server: Res<AssetServer>,
-){
+) -> Entity{
     let mut mesh = Mesh::new(PrimitiveTopology::LineList);
 
     let seed = seed;
@@ -402,10 +394,10 @@ pub fn spawn_asteroid(
         Ccd::enabled(),
 
         Object{
-            id: cfg.new_id(),
+            id: object_id,
             object_type: ObjectType::Asteroid{
                 seed: seed,
-                hp: *cfg.asteroid_hp.get(get_asteroid_size(seed) as usize - 1).unwrap() as u8
+                hp: hp
             }
         },
         Collider::convex_decomposition(&vertices, &indices),
@@ -426,7 +418,7 @@ pub fn spawn_asteroid(
         transform: transform.with_scale(Vec3::splat(1.)),
         material: materials.add(ColorMaterial::default()), //ColorMaterial::from(texture_handle)
         ..default()
-    },);
+    },).id()
 }
 
 pub fn spawn_ship(
@@ -512,8 +504,9 @@ pub fn spawn_ship(
                 angvel: 0.0
             },
             Friction{ // DISABLE ROTATING WHET COLLIDING TO ANYTHING ( MAYBE REPLACE IT ONLY FOR WALLS FOR FUN )
-                coefficient: 0.0,
-                combine_rule: CoefficientCombineRule::Min
+                //coefficient: 0.0,
+                //combine_rule: CoefficientCombineRule::Min,
+                ..default()
             },
             GravityScale(0.0),
             Sleeping::disabled(),
@@ -669,7 +662,7 @@ pub fn update_chunks_around(
     mut materials: ResMut<Assets<ColorMaterial>>,
 
     chunks_q: Query<(&Chunk, Entity)>,
-    cfg: ResMut<GlobalConfig>,
+    mut cfg: ResMut<GlobalConfig>,
 
     mut puppet_objects: Query<(&mut Transform, &Object, &Puppet, &mut Velocity, Entity), (With<Object>, With<Puppet>)>,
     objects: Query<(&Transform, &Object, &Velocity, Entity), (With<Object>, Without<Puppet>)>,
@@ -821,7 +814,20 @@ pub fn update_chunks_around(
                         match object.object_type{
                             ObjectType::Asteroid{ seed, hp } => {
                                 let (asteroid, collider) = asteroid_q.get(*entity).unwrap();
-                                let mut mesh = Mesh::new(PrimitiveTopology::LineList);
+                                let entity = spawn_asteroid(seed, **velocity, **transform, &mut meshes, &mut materials, &mut commands, object.id, cfg.get_asteroid_hp(seed));
+                                commands.entity(entity).insert(
+                                    (
+                                        Puppet {
+                                            id: object.id,
+                                            binded_chunk: Chunk {
+                                                pos: *chunk
+                                            }
+                                        },
+                                        transform.with_translation(pos), //.with_scale(Vec3::splat(2.))
+                                        Name::new("ASTEROID PUPPET"),
+                                    )
+                                );
+                                /*let mut mesh = Mesh::new(PrimitiveTopology::LineList);
                                 let seed = seed;
                                 let (vec, ind) = generate_asteroid_vertices(seed);
 
@@ -868,7 +874,7 @@ pub fn update_chunks_around(
                                     transform: transform.with_translation(pos).with_scale(Vec3::splat(2.)),
                                     material: materials.add(ColorMaterial::default()), //ColorMaterial::from(texture_handle)
                                     ..default()
-                        },);
+                        },);*/
                             },
                             ObjectType::Bullet => {
                                 let owner = bullet_q.get(*entity).unwrap().owner;

@@ -13,7 +13,7 @@ opt-level = 3
 
 
 [dependencies]
-bevy = { version = "0.11.2", features = ["dynamic_linking", "debug_asset_server", "bevy_dynamic_plugin", "multi-threaded"]}
+bevy = { version = "0.11.2", features = ["dynamic_linking", "bevy_dynamic_plugin", "multi-threaded"]}
 bevy_rapier2d = { version = "0.22.0", features = [ "debug-render-2d", "parallel" ] }
 
 bevy_egui = "0.21.0"
@@ -65,3 +65,6 @@ path = "src/generator_test.rs"
 name = "bincode_test"
 path = "src/bincode_test.rs"
 
+[[bin]]
+name = "client_test"
+path = "src/client_test.rs"
