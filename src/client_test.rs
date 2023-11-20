@@ -244,7 +244,7 @@ fn update(
     velocity.linvel += Vec2::from((transform.right().x, transform.right().y)) * target_direction.x * 2.0;
 
     // dumping
-    let max_linvel = 250.;
+    let max_linvel = 500.;
     if velocity.linvel.length_squared() > (max_linvel * max_linvel){
         velocity.linvel *= 0.9;
     }
@@ -323,8 +323,14 @@ fn starfield_update(
             
                 
                 sprite.color.set_a(rand::random::<f32>() * 0.5);
-                
-                transform.translation = camera_global_transform.translation + Vec2::from_angle(player_velocity.linvel.normalize().angle_between(Vec2::NEG_X) + PI * rand::random::<f32>() - PI / 2.).extend(0.) * *max_dist;
+
+
+                transform.translation = camera_global_transform.translation + 
+                    Vec2::from_angle(
+                        (player_velocity.linvel.normalize())
+                            .angle_between(Vec2::X) * -1. + PI * rand::random::<f32>() - PI / 2.
+                    ).extend(0.) * *max_dist;
+
                 transform.rotation = Quat::from_axis_angle(Vec3::Z, PI * 2. * rand::random::<f32>());
             }
         }
