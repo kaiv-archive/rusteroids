@@ -271,7 +271,8 @@ fn starfield_update(
     window: Query<&mut Window>,
     mut camera:  Query<(&Camera, &mut GlobalTransform), (With<Camera>, With<PixelCamera>, Without<Star>, Without<CameraFollow>)>,
     mut star: Local<u64>,
-    mut max_dist: Local<f32>
+    mut max_dist: Local<f32>,
+    mut max_dist_squared: Local<f32>
 ){
     let mut reader = resize_event.get_reader();
     let (camera, mut camera_global_transform) = camera.single_mut();
@@ -285,7 +286,8 @@ fn starfield_update(
             Vec3::ONE
         ).unwrap();
         let max_size = window_size.x.round().max(window_size.y.round());
-        *max_dist = (2. * (max_size.powf(2.))).sqrt() + padding;
+        *max_dist_squared = 2. * (max_size.powf(2.));
+        *max_dist = max_dist_squared.sqrt();
     }
 
     let (_, player_velocity) = player.single();
@@ -295,13 +297,10 @@ fn starfield_update(
 
         let camera_transfrom = camera_global_transform.translation.truncate();
         let star_transform =  transform.translation;
-        let right_up_corner = camera_transfrom + Vec2::splat(*max_dist);
-        let left_down_corner = camera_transfrom - Vec2::splat(*max_dist);
+        //let right_up_corner = camera_transfrom + Vec2::splat(*max_dist);
+        //let left_down_corner = camera_transfrom - Vec2::splat(*max_dist);
         
-        if star_transform.x < right_up_corner.x &&
-        star_transform.x > left_down_corner.x &&
-        star_transform.y < right_up_corner.y &&
-        star_transform.y > left_down_corner.y{ // inside "keep" box
+        if camera_transfrom.distance_squared(star_transform.truncate()) < *max_dist_squared + padding{ // inside "keep" circle
 
         } else {
             if rand::random::<f32>() < 0.02{ // some random
@@ -324,9 +323,9 @@ fn starfield_update(
             
                 
                 sprite.color.set_a(rand::random::<f32>() * 0.5);
-                //left_down_corner.extend(0.)      
-                transform.translation = new_pos;   
-                transform.rotation = Quat::from_axis_angle(Vec3::Z, PI / 2. * rand::random::<f32>());
+                
+                transform.translation = camera_global_transform.translation + Vec2::from_angle(player_velocity.linvel.normalize().angle_between(Vec2::NEG_X) + PI * rand::random::<f32>() - PI / 2.).extend(0.) * *max_dist;
+                transform.rotation = Quat::from_axis_angle(Vec3::Z, PI * 2. * rand::random::<f32>());
             }
         }
 
