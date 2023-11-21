@@ -1,4 +1,4 @@
-use std::{net::UdpSocket, time::SystemTime};
+use std::{net::{UdpSocket, SocketAddr}, time::SystemTime};
 
 use bevy::{prelude::*, core_pipeline::clear_color::ClearColorConfig, window::WindowResized, transform::commands};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -172,6 +172,7 @@ fn setup_game(
     mut loaded_chunks: ResMut<LoadedChunks>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    mut time: Res<Time>,
 ){
     // INIT SERVER   
     let server = RenetServer::new(connection_config());
@@ -179,21 +180,22 @@ fn setup_game(
     
     println!("PORT IS {}", settings.port);
 
-    let server_addr = format!("127.0.0.1:{}", settings.port).parse().unwrap();
-
+    let server_addr = vec![format!("127.0.0.1:{}", settings.port).parse::<SocketAddr>().unwrap()];//format!("127.0.0.1:{}", settings.port).parse().unwrap(); SocketAddr::from("127.0.0.1:{}");
+    
     commands.insert_resource(RenetServerVisualizer::<200>::default());
-    let socket = UdpSocket::bind(server_addr).unwrap();
-
+    let current_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();
+    let socket = UdpSocket::bind(server_addr[0]).unwrap();
     const GAME_PROTOCOL_ID: u64 = 0;
     let server_config = ServerConfig {
         max_clients: settings.max_clients,
         protocol_id: GAME_PROTOCOL_ID,
-        public_addr: server_addr,
+        public_addresses: server_addr,
+        current_time: current_time,
         authentication: ServerAuthentication::Unsecure
     };
 
-    let current_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();
-    let transport = NetcodeServerTransport::new(current_time, server_config, socket).unwrap();
+    
+    let transport = NetcodeServerTransport::new(server_config, socket).unwrap();
     commands.insert_resource(transport);
     println!("SERVER STARTED!!!!");
     let size = (cfg.map_size_chunks  + Vec2::from((2., 2.))) * cfg.single_chunk_size;
@@ -314,9 +316,9 @@ fn receive_message_system(
             let msg: Message = bincode::deserialize::<Message>(&message).unwrap();
             match msg {
                 Message::Inputs{ keys, rotation_direction } => {
-                    let client_data_op = clients_data.get_option_by_client_id(client_id);
+                    let client_data_op = clients_data.get_option_by_client_id(client_id.raw());
                     if client_data_op.is_some() {
-                        let client_data = clients_data.get_by_client_id(client_id);
+                        let client_data = clients_data.get_by_client_id(client_id.raw());
                         let res = ships_q.get_mut(client_data.entity);
 
                         if res.is_ok(){
@@ -391,7 +393,7 @@ fn handle_events_system(
 
 
                 let new_client_data = ClientData { 
-                    client_id:*client_id,
+                    client_id: client_id.raw(),
                     object_id: object_id,
                     entity: entity,
                     style: data[3],

@@ -1,6 +1,6 @@
 use std::f32::consts::PI;
 use bevy::{render::{view::RenderLayers, render_resource::{TextureDescriptor, Extent3d, TextureDimension, TextureFormat, TextureUsages}, camera::RenderTarget}, prelude::*, app::AppExit, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::{BloomCompositeMode, BloomSettings}, clear_color::ClearColorConfig}};
-use bevy_egui::{egui::{self, Style, Visuals, epaint::Shadow, Color32, Rounding, Align, Stroke, FontId}, EguiContexts, EguiUserTextures};
+use bevy_egui::{egui::{self, Style, Visuals, epaint::Shadow, Color32, Rounding, Align, Stroke, FontId, load::SizedTexture}, EguiContexts, EguiUserTextures};
 use rand::random;
 
 use crate::{game::*, InitClient, ConnectProperties, ClientState};
@@ -477,8 +477,10 @@ pub fn egui_based_menu(
             cd.color = settings.color;
             // CONVERT INTO STYLE ID
             ui.image(
-                ship_preview_texture_id,
-                egui::vec2(ui.available_size().x, ui.available_size().x),
+                SizedTexture{
+                    id: ship_preview_texture_id,
+                    size: egui::vec2(ui.available_size().x, ui.available_size().x),
+                }
             );
     });
 }

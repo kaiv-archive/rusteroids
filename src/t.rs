@@ -9,7 +9,7 @@ use bevy::{
         view::RenderLayers,
     },
 };
-use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiUserTextures};
+use bevy_egui::{egui::{self, load::SizedTexture}, EguiContexts, EguiPlugin, EguiUserTextures};
 use egui::Widget;
 
 fn main() {
@@ -161,8 +161,10 @@ fn render_to_image_example_system(
     egui::Window::new("Cube material preview").show(ctx, |ui| {
 
         ui.image(
-            cube_preview_texture_id,
-            egui::vec2(300., 300.),
+            SizedTexture{
+                id: cube_preview_texture_id,
+                size: egui::vec2(300., 300.),
+            }
         );
         egui::Grid::new("preview").show(ui, |ui| {
             ui.label("Base color:");
@@ -193,7 +195,7 @@ fn render_to_image_example_system(
         let material_clone = preview_material.clone();
 
         let main_material_handle = main_cube_query.single();
-        let _ = materials.set(main_material_handle, material_clone);
+        //let _ = materials.set(main_material_handle, material_clone);
     }
 }
 

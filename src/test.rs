@@ -52,7 +52,7 @@ fn init_client(
     ).unwrap();
 
     commands.insert_resource(RenetClient::new(ConnectionConfig::default()));
-    println!("{}", transport.is_connecting());
+    //println!("{}", transport.);
     commands.insert_resource(transport);
     
 

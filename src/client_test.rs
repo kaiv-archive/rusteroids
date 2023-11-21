@@ -249,9 +249,9 @@ fn update(
         velocity.linvel *= 0.9;
     }
     let max_angvel = 5.;
-    //if velocity.angvel > max_angvel{
-    //    velocity.angvel *= 0.9;
-    //}
+    if velocity.angvel > max_angvel{
+        velocity.angvel *= 0.9;
+    }
 }
 
 #[derive(Component)]
@@ -270,17 +270,19 @@ fn starfield_update(
     asset_server: Res<AssetServer>,
     window: Query<&mut Window>,
     mut camera:  Query<(&Camera, &mut GlobalTransform), (With<Camera>, With<PixelCamera>, Without<Star>, Without<CameraFollow>)>,
-    mut star: Local<u64>,
+
     mut max_dist: Local<f32>,
     mut max_dist_squared: Local<f32>
 ){
-    let mut reader = resize_event.get_reader();
-    let (camera, mut camera_global_transform) = camera.single_mut();
+    if camera.is_empty(){return;}
+    
+    let (camera, camera_global_transform) = camera.single_mut();
     let camera_global_transform = camera_global_transform.compute_transform();
     let padding = 10.;
     
-    if reader.iter(&resize_event).len() > 0 ||
-    star_q.iter().len() == 0{
+    
+    let mut reader = resize_event.get_reader();
+    if reader.iter(&resize_event).len() > 0{
         let window_size = camera.ndc_to_world(
             &GlobalTransform::from(camera_global_transform.with_rotation(Quat::from_axis_angle(Vec3::Z, 0.)).with_translation(Vec3::ZERO)),
             Vec3::ONE

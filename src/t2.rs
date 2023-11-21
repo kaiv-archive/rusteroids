@@ -181,7 +181,7 @@ fn on_resize(
             ..default()
         };
         let target_size = e.width / size.width as f32;
-        let img = images.get_mut(&image_handle).unwrap();
+        let img = images.get_mut(image_handle).unwrap();
         img.resize(size);
         transform.scale = Vec3::splat(target_size);
     }
