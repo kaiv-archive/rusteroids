@@ -1,12 +1,13 @@
 use std::f32::consts::PI;
 
+use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::prelude::*;
 use bevy::render::mesh::Indices;
 use bevy::render::render_resource::PrimitiveTopology;
 use bevy::sprite::{Mesh2dHandle, MaterialMesh2dBundle};
 use bevy::window::WindowResized;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-
+use rand::Rng;
 
 
 
@@ -29,11 +30,15 @@ fn main(){
 
     app.add_plugins((
         DefaultPlugins.set(
-        ImagePlugin::default_nearest()
-        ),
+                ImagePlugin::default_nearest(),
+        ).set(WindowPlugin{ primary_window: Some(Window{ present_mode: bevy::window::PresentMode::AutoNoVsync, ..default() }), ..default()},),
+        
         WorldInspectorPlugin::new(),
         RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0), // ::<NoUserData>::pixels_per_meter(15.0)
-        RapierDebugRenderPlugin{enabled: true, ..default()}
+        RapierDebugRenderPlugin{enabled: false, ..default()},
+
+        FrameTimeDiagnosticsPlugin,
+        LogDiagnosticsPlugin::default(),
     ));
 
 
@@ -66,7 +71,10 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut cfg: ResMut<GlobalConfig>,
+    mut window: Query<&mut Window>,
 ){
+
+    window.single_mut().resolution.set(1280., 720.);
     
 
 
@@ -79,7 +87,7 @@ fn setup(
     //let seed = rand::random();
     //game::spawn_asteroid(seed, Velocity::zero(), Transform::from_translation(Vec3::splat(0.)), &mut meshes, &mut materials, &mut commands, cfg.new_id(), cfg.get_asteroid_hp(seed));
 
-
+    
 
 
 
@@ -257,20 +265,22 @@ fn update(
 #[derive(Component)]
 struct Star{depth: f32}
 
-const STARFIELD_LAYERS : i8 = 32;
-const STARFIELD_STARS : usize = 128;
+
+
+
+const STARFIELD_STARS : usize = 1024;
 
 fn starfield_update(
     mut resize_event: Res<Events<WindowResized>>,
     mut commands: Commands,
-    mut star_q: Query<(&mut Transform, &mut Sprite), (With<Star>, Without<Camera>, Without<CameraFollow>)>,
+    mut star_q: Query<(&mut Transform, &mut Sprite, &Star), (With<Star>, Without<Camera>, Without<CameraFollow>)>,
 
     player: Query<(&Transform, &Velocity), (With<CameraFollow>, Without<Star>, Without<Camera>)>,
 
     asset_server: Res<AssetServer>,
     window: Query<&mut Window>,
     mut camera:  Query<(&Camera, &mut GlobalTransform), (With<Camera>, With<PixelCamera>, Without<Star>, Without<CameraFollow>)>,
-
+    time: Res<Time>,
     mut max_dist: Local<f32>,
     mut max_dist_squared: Local<f32>
 ){
@@ -282,7 +292,7 @@ fn starfield_update(
     
     
     let mut reader = resize_event.get_reader();
-    if reader.iter(&resize_event).len() > 0{
+    if reader.read(&resize_event).len() > 0 || *max_dist < 1.{ // todo: fix bug with first frame; after using it in game it might fix itself.
         let window_size = camera.ndc_to_world(
             &GlobalTransform::from(camera_global_transform.with_rotation(Quat::from_axis_angle(Vec3::Z, 0.)).with_translation(Vec3::ZERO)),
             Vec3::ONE
@@ -292,10 +302,13 @@ fn starfield_update(
         *max_dist = max_dist_squared.sqrt();
     }
 
+
+
+
     let (_, player_velocity) = player.single();
 
     for star_data in star_q.iter_mut(){
-        let (mut transform, mut sprite) = star_data;
+        let (mut transform, mut sprite, star) = star_data;
 
         let camera_transfrom = camera_global_transform.translation.truncate();
         let star_transform =  transform.translation;
@@ -303,28 +316,13 @@ fn starfield_update(
         //let left_down_corner = camera_transfrom - Vec2::splat(*max_dist);
         
         if camera_transfrom.distance_squared(star_transform.truncate()) < *max_dist_squared + padding{ // inside "keep" circle
-
+            transform.translation += player_velocity.linvel.extend(0.)  * time.delta_seconds() * (1. - star.depth * 0.5);//
         } else {
-            if rand::random::<f32>() < 0.02{ // some random
-                let mut new_pos = camera_global_transform.translation;
-                if rand::random::<bool>(){ // choose a random side
-                    new_pos.x += 2. * *max_dist * rand::random::<f32>() - *max_dist;
-                    if player_velocity.linvel.y.is_sign_positive(){
-                        new_pos.y += 1. * *max_dist;
-                    } else {
-                        new_pos.y -= 1. * *max_dist;
-                    }
-                } else {
-                    new_pos.y += 2. * *max_dist * rand::random::<f32>() - *max_dist;
-                    if player_velocity.linvel.x.is_sign_positive(){
-                        new_pos.x += 1. * *max_dist;
-                    } else {
-                        new_pos.x -= 1. * *max_dist;
-                    }
-                }
+            if rand::random::<f32>() < 0.1{ // some random
+
             
                 
-                sprite.color.set_a(rand::random::<f32>() * 0.5);
+                //sprite.color.set_a(rand::random::<f32>() * 0.5);
 
 
                 transform.translation = camera_global_transform.translation + 
@@ -346,27 +344,52 @@ fn starfield_update(
     }
     let curr_stars_count = star_q.into_iter().len();
     
-    if curr_stars_count < STARFIELD_STARS{
-        for star in 0..STARFIELD_STARS{
+    if curr_stars_count < STARFIELD_STARS{ // todo: move to init and add varables to settings
+
+        for _ in 0..STARFIELD_STARS{
+            let depth = rand::random::<f32>();
             let texture_path = [
-            "star1.png",
-            "star2.png",
-            "smoothstar.png",
-        ]; 
-        let mut new_pos = Vec3::ZERO;
-        new_pos.x += 2. * *max_dist * rand::random::<f32>() - *max_dist;
-        new_pos.y += 2. * *max_dist * rand::random::<f32>() - *max_dist;
-        
-        commands.spawn((
-            SpriteBundle {
-                transform: Transform::from_translation(camera_global_transform.translation + new_pos)
-                    .with_rotation(Quat::from_axis_angle(Vec3::Z, PI / 2. * rand::random::<f32>())),
-                texture: asset_server.load(texture_path[(rand::random::<f32>() * texture_path.len() as f32) as usize]),
-                sprite: Sprite { color: Color::Rgba {alpha: rand::random::<f32>() * 0.25, red: 1., green: 1., blue: 1. }, ..default() },
-                ..default()
-            },
-            Star{depth: rand::random()}
-        ));
+                "star1.png",
+                "star2.png",
+                "smoothstar.png",
+                ]; 
+            let mut rng = rand::thread_rng();
+            
+
+            let main_colors = [
+                Color::Rgba {alpha: 1., red: 2., green: 2., blue: 2. },
+                Color::Rgba {alpha: 1., red: 1.3, green: 1.1, blue: 0.7 },
+                Color::Rgba {alpha: 1., red: 1., green: 0.2, blue: 0.1 },
+                Color::Rgba {alpha: 1., red: 1., green: 1., blue: 0.2 },
+                Color::Rgba {alpha: 1., red: 0.5, green: 0.7, blue: 6. },
+            ];
+ 
+            let index = match rand::random::<f32>(){
+                n if n < 0.55 => {0}, // white
+                n if n < 0.70 => {1}, // orange
+                n if n < 0.80 => {2}, // red
+                n if n < 0.99 => {3}, // yellow
+                _ => {4}, // blue
+            };
+
+
+
+            let color = main_colors[index];
+            let mut new_pos = Vec3::ZERO;
+            new_pos.x += 2. * *max_dist * rand::random::<f32>() - *max_dist;
+            new_pos.y += 2. * *max_dist * rand::random::<f32>() - *max_dist;
+            
+            commands.spawn((
+                SpriteBundle {
+                    transform: Transform::from_translation(camera_global_transform.translation + new_pos)
+                        .with_rotation(Quat::from_axis_angle(Vec3::Z, PI / 2. * rand::random::<f32>()))
+                        .with_scale(Vec3::splat(0.1 + depth * 0.3)),
+                    texture: asset_server.load(texture_path[rng.gen_range(0..texture_path.len())]),
+                    sprite: Sprite { color: color.with_a(depth * 0.35), ..default() }, // ADD RANDOM COLORS
+                    ..default()
+                },
+                Star{depth: depth}
+            ));
         }
     }
 

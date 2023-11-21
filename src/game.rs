@@ -20,7 +20,7 @@ pub fn pixel_camera_event_listener(
     mut listener: EventReader<ApplyCameraSettings>,
     mut camera: Query<(&mut Tonemapping, &mut BloomSettings, &mut DebandDither), With<PixelCamera>>
 ){
-    for e in listener.iter(){
+    for e in listener.read(){
         for (mut tonemapping, mut bloom, mut deband_dither) in camera.iter_mut(){
             match e{
                 ApplyCameraSettings::DebandDither => {
@@ -162,7 +162,7 @@ pub fn update_pixel_camera(
 ){
     let mut reader = resize_event.get_reader();
     let (image_handle, mut transform) = canvas_q.single_mut();
-    for e in reader.iter(&resize_event) {
+    for e in reader.read(&resize_event) {
         if e.height == 0.{continue;}
         let raito = TARGET_HEIGHT / e.height;
         let size = Extent3d {
@@ -657,7 +657,7 @@ pub fn update_chunks_around(
     mut commands: Commands,
 
     time: Res<Time>,
-    asset_server: Res<AssetServer>,
+    //asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 
@@ -813,7 +813,7 @@ pub fn update_chunks_around(
                         
                         match object.object_type{
                             ObjectType::Asteroid{ seed, hp } => {
-                                let (asteroid, collider) = asteroid_q.get(*entity).unwrap();
+                                //let (asteroid, collider) = asteroid_q.get(*entity).unwrap();
                                 let entity = spawn_asteroid(seed, **velocity, **transform, &mut meshes, &mut materials, &mut commands, object.id, cfg.get_asteroid_hp(seed));
                                 commands.entity(entity).insert(
                                     (

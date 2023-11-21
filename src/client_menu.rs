@@ -216,7 +216,7 @@ pub fn egui_based_menu(
             //selection: todo!(),
             //hyperlink_color: todo!(),
             //faint_bg_color: todo!(),
-            window_rounding: Rounding::none(),
+            window_rounding: Rounding::ZERO,
             window_shadow: Shadow::NONE,
             window_fill: Color32::from_rgba_unmultiplied(0, 0, 0, 230),
             
@@ -268,7 +268,10 @@ pub fn egui_based_menu(
             
             ui.vertical_centered(|ui|{
                 let mut newstyle = (*ctx.style()).clone();
-                newstyle.text_styles = [(egui::TextStyle::Button, FontId::new(34.0, egui::FontFamily::Monospace))].into();
+                newstyle.text_styles = [
+                    (egui::TextStyle::Button, FontId::new(34.0, egui::FontFamily::Monospace)),
+                    (egui::TextStyle::Body, FontId::new(34.0, egui::FontFamily::Monospace))
+                    ].into();
                 ui.style_mut().text_styles = newstyle.text_styles;
                 let play_btn = ui.add_sized(     [300., 40.], egui::Button::new("⚔PLAY⚔")).clicked();
                 let customize_btn = ui.add_sized([300., 40.], egui::Button::new("✱CUSTOMIZE✱")).clicked();
@@ -560,7 +563,7 @@ pub fn spawn_beam(
     //mut materials: ResMut<Assets<ColorMaterial>>,
     asset_server: Res<AssetServer>,
 ){
-    for e in reader.iter(){
+    for e in reader.read(){
         let (offset, rotation, translation_offset) = (e.offset, e.rotation, e.translation_offset);
         let target = Vec2::from_angle(rotation);
         let target = Vec3{x: target.x, y: target.y, z: 0.};

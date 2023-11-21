@@ -138,7 +138,7 @@ fn init_client(
     // todo: FOR DEBUG => REMOVE IT
     mut clients_data: ResMut<ClientsData>,
 ){  
-    for e in reader.iter(){
+    for e in reader.read(){
         let mut data: Vec<u8> = vec![];
 
         // COLOR
