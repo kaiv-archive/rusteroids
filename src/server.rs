@@ -50,8 +50,8 @@ fn main(){
     app.insert_resource(LoadedChunks{chunks: vec![]});
     app.insert_resource(GlobalConfig{
         map_size_chunks: Vec2{
-            x: 5.,
-            y: 8.
+            x: 6.,
+            y: 3.
         },
         ..default()
     });

@@ -417,13 +417,14 @@ pub fn player_movement(
 
     /*
     INPUTS:
-                         [ <W / S> for forward / backward movement  
-                         [ <Q / E> for left / righlt movement (UNUSED!!!)
-                         [ <A / D> for rotate yourself
+                          ________________________________________
+                         | <W / S> for forward / backward movement  
+                         | <Q / E> for left / righlt movement (UNUSED!!!)
+                         | <A / D> for rotate yourself
                          |
                          v
                 [.] . . . . . . . . . . . .  [ .... ]
-                [..] {. W .}. . . . . . . . . [ ... ]
+                [..] {q W e}. . . . . . . . . [ ... ]
                 [...] {A S D}. . . . . . . . [ .... ]
             .-> [LSHIFT] . . . . . . . . . . [RSHIFT] <-.
        ____/    [..][.][..] -  - SPACE -  - ][..][..]    \_____

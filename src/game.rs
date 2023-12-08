@@ -368,31 +368,57 @@ pub fn spawn_asteroid(
     hp: u8
     //asset_server: Res<AssetServer>,
 ) -> Entity{
+    
     let mut mesh = Mesh::new(PrimitiveTopology::LineList);
+    let mut shadow_mesh = Mesh::new(PrimitiveTopology::TriangleList);
 
     let seed = seed;
     
     let (vec, ind) = generate_asteroid_vertices(seed);
-
+    let mut shadow_vec = vec.clone();
+    let mut shadow_ind = vec![];
+    shadow_vec.push([0., 0., 0.,]);
+    for i in 0..ind.len(){
+        shadow_ind.push(*ind.get(i).unwrap());
+        if (i + 1) % 2 == 0{
+            shadow_ind.push(shadow_vec.len() as u32 - 1);
+        }
+    }
+    let size = get_asteroid_size(seed);
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec.clone());
+    shadow_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, shadow_vec.clone());
     mesh.set_indices(Some(Indices::U32(ind.clone())));
-
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![Color::WHITE.as_rgba_f32(); 16]);
+    shadow_mesh.set_indices(Some(Indices::U32(shadow_ind.clone())));
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![(Color::WHITE * 20.).as_rgba_f32(); vec.len()]);
+    shadow_mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![Color::BLACK.as_rgba_f32(); shadow_vec.len()]);
     
     let (vertices, indices) = prepate_for_polyline(vec, ind);
     //let (vertices, indices) = prepate_for_trimesh(vec, ind);
-    commands.spawn((
+    let mut summ = Vec2::ZERO;
+    let mut count = 0;
+    for vert in vertices.iter(){
+        summ += *vert;
+        count += 1;
+    }
+    let center = summ / count as f32;
+
+    let shadow = commands.spawn((
+        MaterialMesh2dBundle { //MESH
+            mesh: Mesh2dHandle(meshes.add(shadow_mesh)),
+            transform: Transform { translation: (-center).extend(-1.), scale: Vec3::splat(1.), ..default()},
+            material: materials.add(ColorMaterial::default()), //ColorMaterial::from(texture_handle)
+            ..default()
+        },
+    )).id();
+
+    return commands.spawn((
         RigidBody::Dynamic,
         //TransformBundle::from(Transform::from_xyz(0.0, 5.0, 0.0)), // SPAWN POSITION
         velocity,
-        Friction{ // DISABLE ROTATING WHET COLLIDING TO ANYTHING ( MAYBE REPLACE IT ONLY FOR WALLS FOR FUN )
-            coefficient: 0.3,
-            combine_rule: CoefficientCombineRule::Min
-        },
+        Friction::default(),
         GravityScale(0.0),
         Sleeping::disabled(),
         Ccd::enabled(),
-
         Object{
             id: object_id,
             object_type: ObjectType::Asteroid{
@@ -402,13 +428,11 @@ pub fn spawn_asteroid(
         },
         Collider::convex_decomposition(&vertices, &indices),
         //Collider::trimesh(vertices, indices), // trimesh is shit for dynamic bodies
-
         
-
         //Collider::ball(get_asteroid_size(seed) as f32 * 10.0),
         Restitution {
-            coefficient: 1.,
-            combine_rule: CoefficientCombineRule::Multiply,
+            coefficient: 0.1,
+            combine_rule: CoefficientCombineRule::Average,
         },
         Name::new("ASTEROID"),
         Asteroid, // TAG get_asteroid_size(seed) * 2 - 1 
@@ -418,7 +442,7 @@ pub fn spawn_asteroid(
         transform: transform.with_scale(Vec3::splat(1.)),
         material: materials.add(ColorMaterial::default()), //ColorMaterial::from(texture_handle)
         ..default()
-    },).id()
+    }).add_child(shadow).id();
 }
 
 pub fn spawn_ship(
@@ -460,12 +484,13 @@ pub fn spawn_ship(
     //let is_spikes = bits[4];
     //let is_gem = bits[5];
     //let is_shards = bits[6];
-
+    
+    let offset: f32 = -(1. / 3.); // for fixing center of body.
 
     let is_aspects = bits[7];
     let is_lined = bits[2];
     for i in 0..triangle_vertices.len(){
-        let mut v = triangle_vertices[i].iter().map(|&p| Vec3::from((p.0, p.1, 0.))).collect::<Vec<_>>();
+        let mut v = triangle_vertices[i].iter().map(|&p| Vec3::from((p.0, p.1 - 2.*offset, 0.))).collect::<Vec<_>>();
 
         let is_body = triangle_vertices[i].contains(&(0., 5.));
         let color = if is_body && is_aspects {Color::WHITE.as_rgba_f32()} else {color};
@@ -493,9 +518,11 @@ pub fn spawn_ship(
     } else {
         Mesh::new(PrimitiveTopology::TriangleList)
     };
+    
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices);        
     mesh.set_indices(Some(Indices::U32(indices)));
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vertex_colors);
+
     let entity = if !mesh_only{
         commands.spawn((
             RigidBody::Dynamic,
@@ -503,18 +530,23 @@ pub fn spawn_ship(
                 linvel: Vec2::new(0.0, 0.0),
                 angvel: 0.0
             },
-            Friction{ // DISABLE ROTATING WHET COLLIDING TO ANYTHING ( MAYBE REPLACE IT ONLY FOR WALLS FOR FUN )
-                //coefficient: 0.0,
-                //combine_rule: CoefficientCombineRule::Min,
-                ..default()
-            },
+            Friction::default(),
+            ColliderMassProperties::Density(2.),
             GravityScale(0.0),
             Sleeping::disabled(),
-            Ccd::enabled(),
-            Collider::triangle(Vec2::new(0., 12.0), Vec2::new(-6., -6.), Vec2::new(6., -6.)),
+            //Ccd::enabled(),
+            //Collider::triangle(Vec2::new(0., 5.0), Vec2::new(-3., -5.), Vec2::new(3., -5.)),
+            Collider::trimesh(vec![Vec2::new(0., 6. + offset), Vec2::new(-3., -1. + offset), Vec2::new(3., -1. + offset), Vec2::new(0., -4. + offset)], vec![[0, 1, 3], [3, 2, 0]]),
+            
+            /*Collider::compound(vec![
+                (Vec2::ZERO, 0., Collider::triangle(Vec2::new(0., 5.0), Vec2::new(-3., -2.), Vec2::new(3., -2.))),
+                (Vec2::ZERO, 0., Collider::triangle(Vec2::new(-3., -2.), Vec2::new(3., -2.), Vec2::new(0., -5.)))
+                ]),*/
+            //Collider::polyline(vec![Vec2::new(0., 5.0), Vec2::new(-3., -2.), Vec2::new(3., -2.), Vec2::new(0., -5.)], Some(vec![[0, 1], [1, 3], [0, 2], [2, 3]])),
+            //Collider::ball(5.),
             Restitution {
-                coefficient: 1.,
-                combine_rule: CoefficientCombineRule::Multiply,
+                coefficient: 0.1,
+                combine_rule: CoefficientCombineRule::Average,
             },
             Name::new("Player"),
             ActiveEvents::CONTACT_FORCE_EVENTS,
@@ -544,6 +576,50 @@ pub fn spawn_ship(
     return entity
 }
 
+pub fn spawn_bullet(
+    target_velocity: Vec2,
+    transform: &Transform,
+    object_id: u64,
+    owner: u64,
+    spawn_time: f32, // time.elapsed().as_secs_f32()
+    asset_server: &Res<AssetServer>,
+    commands: &mut Commands,
+){
+    commands.spawn((
+        RigidBody::Dynamic,
+        //TransformBundle::from(Transform::from_xyz(0.0, 5.0, 0.0)), // SPAWN POSITION
+        Velocity {              // VELOCITY
+            linvel: target_velocity,
+            angvel: 0.0
+        },
+        Friction{ // DISABLE ROTATING WHET COLLIDING TO ANYTHING ( MAYBE REPLACE IT ONLY FOR WALLS FOR FUN )
+            coefficient: 0.0,
+            combine_rule: CoefficientCombineRule::Min
+        },
+        GravityScale(0.0),
+        Sleeping::disabled(),
+        Ccd::enabled(),
+        //Collider::cuboid(2., 30.),
+        Restitution {
+            coefficient: 1.,
+            combine_rule: CoefficientCombineRule::Multiply,
+        },
+        Name::new("Bullet"),
+        //Sensor,
+        ActiveEvents::COLLISION_EVENTS,
+        Object{
+            id: object_id,
+            object_type: ObjectType::Bullet
+        },
+        Bullet{previous_position: Transform::from_translation(transform.translation), spawn_time: spawn_time, owner: owner}
+    ))
+    .insert(
+        SpriteBundle {
+            transform: Transform::from_matrix(Mat4::from_rotation_translation(transform.rotation, transform.translation)),
+            texture: asset_server.load("bullet.png"),
+            ..default()
+    }); 
+}
 
 
 pub fn debug_chunk_render(
@@ -812,7 +888,7 @@ pub fn update_chunks_around(
                             Vec3{x: chunk.x * cfg.single_chunk_size.x, y: chunk.y * cfg.single_chunk_size.y, z: 0.};             // CHUNK OFFSET
                         
                         match object.object_type{
-                            ObjectType::Asteroid{ seed, hp } => {
+                            ObjectType::Asteroid{ seed, hp: _ } => {
                                 //let (asteroid, collider) = asteroid_q.get(*entity).unwrap();
                                 let entity = spawn_asteroid(seed, **velocity, **transform, &mut meshes, &mut materials, &mut commands, object.id, cfg.get_asteroid_hp(seed));
                                 commands.entity(entity).insert(

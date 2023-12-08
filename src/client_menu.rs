@@ -1,6 +1,6 @@
-use std::f32::consts::PI;
+use std::{f32::consts::PI, ops::RangeInclusive};
 use bevy::{render::{view::RenderLayers, render_resource::{TextureDescriptor, Extent3d, TextureDimension, TextureFormat, TextureUsages}, camera::RenderTarget}, prelude::*, app::AppExit, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::{BloomCompositeMode, BloomSettings}, clear_color::ClearColorConfig}};
-use bevy_egui::{egui::{self, Style, Visuals, epaint::Shadow, Color32, Rounding, Align, Stroke, FontId, load::SizedTexture}, EguiContexts, EguiUserTextures};
+use bevy_egui::{egui::{self, Style, Visuals, epaint::Shadow, Color32, Rounding, Align, Stroke, FontId, load::SizedTexture, Slider}, EguiContexts, EguiUserTextures};
 use rand::random;
 
 use crate::{game::*, InitClient, ConnectProperties, ClientState};
@@ -187,7 +187,8 @@ pub fn egui_based_menu(
         //egui::FontData::from_static(include_bytes!("../assets/fonts/unifont-15.1.04.otf") )
         //egui::FontData::from_static(include_bytes!("../assets/fonts/VCR OSD Mono Cyr.ttf") )
         //egui::FontData::from_static(include_bytes!("../assets/fonts/pixelplay.ttf") )
-        egui::FontData::from_static(include_bytes!("../assets/fonts/monocraft.ttf") )
+        //egui::FontData::from_static(include_bytes!("../assets/fonts/monocraft.ttf") )
+        egui::FontData::from_static(include_bytes!("../assets/fonts/VecTerminus12Medium.otf") )
         //egui::FontData::from_static(include_bytes!("../assets/fonts/rzpix.ttf") )
         //egui::FontData::from_static(include_bytes!("../assets/fonts/CozetteVector.ttf") )
         //egui::FontData::from_static(include_bytes!("../assets/fonts/bf-mnemonika-regular-regular1.ttf") )
@@ -445,15 +446,20 @@ pub fn egui_based_menu(
             ].into();
             ui.style_mut().text_styles = newstyle.text_styles;
             ui.add(egui::TextEdit::singleline(&mut settings.name).char_limit(24));
-            ui.horizontal(|ui| {
+            /*ui.horizontal(|ui| {
                 ui.label("Color");
                 ui.color_edit_button_rgb(&mut settings.color);
                 if settings.color[0].max(settings.color[1].max(settings.color[2])) < 0.3{
                     ui.add(egui::Label::new(egui::RichText::new("TOO DARK!").color(Color32::RED)));
                 };
-            });
-
-
+            });*/
+            ui.label("Color");
+            ui.add(Slider::new(&mut settings.color[0], RangeInclusive::new(0., 3.)).prefix("R = "));
+            ui.add(Slider::new(&mut settings.color[1], RangeInclusive::new(0., 3.)).prefix("G = "));
+            ui.add(Slider::new(&mut settings.color[2], RangeInclusive::new(0., 3.)).prefix("B = "));
+            if settings.color[0].max(settings.color[1].max(settings.color[2])) < 0.3{
+                ui.add(egui::Label::new(egui::RichText::new("TOO DARK!").color(Color32::RED)));
+            };
             egui::ComboBox::from_label("Colormode")
                .selected_text(format!("{}", match ship_style.1 {false => {"Full"}, true => {"Aspects"}}))
                .show_ui(ui, |ui| {
