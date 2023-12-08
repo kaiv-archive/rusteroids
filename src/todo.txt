@@ -33,6 +33,7 @@ OBJECTS
 
 MINING
 SHOP
+ОТДАЧА ОТ ПУЛЬ
 
 
 
