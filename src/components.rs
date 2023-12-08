@@ -1,5 +1,5 @@
 use std::{collections::HashMap, time::Duration};
-use bevy::{prelude::{Component, Resource, Event, Vec2, Vec3, Transform, Entity, Quat}, ecs::query::Has};
+use bevy::prelude::{Component, Resource, Event, Vec2, Vec3, Transform, Entity, Quat};
 use bevy_rapier2d::prelude::Velocity;
 use bevy_renet::renet::{ChannelConfig, SendType, ConnectionConfig};
 use rand::{SeedableRng, Rng};
@@ -18,8 +18,7 @@ pub enum Message{
         data: Vec<ObjectData>
     }, // DATA ABOUT CHUNKS AROUND
     Inputs{
-        keys: PressedKeys,
-        rotation_direction: f32,
+        inputs: InputKeys,
     }, // CLIENT INPUTS
     ChatMessage{
         sender_id: u64,
@@ -48,21 +47,12 @@ pub struct ObjectData{
 }
 
 
-
-#[derive(Serialize, Deserialize)]
-pub struct PressedKeys{
-    pub up: bool,
-    pub down: bool,
-    pub right: bool,
-    pub left: bool
-}
-
 impl From<Message> for u8 {
     fn from(channel_id: Message) -> Self {
         match channel_id {
             Message::OnConnect{clients_data: _, config: _, ship_object_id: _ } => {0},
             Message::Update{data: _} => {1},
-            Message::Inputs {keys: _, rotation_direction: _ } => {2},
+            Message::Inputs {inputs: _} => {2},
             Message::ChatMessage{sender_id: _,message: _,} => {3},
             Message::NewConnection{client_data: _} => {4},
             Message::NewDisconnection{id: _} => {5},
@@ -398,5 +388,47 @@ pub fn connection_config() -> ConnectionConfig {
         available_bytes_per_tick: 1024 * 1024,
         client_channels_config: ClientChannel::channels_config(),
         server_channels_config: ServerChannel::channels_config(),
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[derive(Resource, PartialEq, Eq)]
+pub enum InputType{
+    Keyboard,
+    Mouse
+}
+#[derive(Serialize, Deserialize)]
+#[derive(Resource)]
+pub struct InputKeys{
+    pub up: bool,
+    pub down: bool,
+    pub left: bool,
+    pub right: bool,
+    pub rotate_left: bool,
+    pub rotate_right: bool,
+    pub rotation_target: Vec2,
+    pub stabilize: bool,
+    pub shoot: bool,
+    pub dash: bool,
+    pub fixed_camera_z: bool,
+    pub input_type: InputType,
+}
+
+impl Default for InputKeys{
+    fn default() -> Self {
+        InputKeys {
+            up: false,
+            down: false,
+            left: false,
+            right: false,
+            rotate_left: false,
+            rotate_right: false,
+            rotation_target: Vec2::ZERO,
+            stabilize: false,
+            shoot: false,
+            dash: false,
+            fixed_camera_z: false,
+            input_type: InputType::Mouse,
+        }
     }
 }

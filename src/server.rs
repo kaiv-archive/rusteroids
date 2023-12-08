@@ -1,4 +1,4 @@
-use std::{net::{UdpSocket, SocketAddr}, time::SystemTime};
+use std::{net::{UdpSocket, SocketAddr}, time::SystemTime, f32::consts::PI};
 
 use bevy::{prelude::*, core_pipeline::clear_color::ClearColorConfig, window::WindowResized, transform::commands};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -50,8 +50,8 @@ fn main(){
     app.insert_resource(LoadedChunks{chunks: vec![]});
     app.insert_resource(GlobalConfig{
         map_size_chunks: Vec2{
-            x: 6.,
-            y: 3.
+            x: 1.,
+            y: 1.
         },
         ..default()
     });
@@ -254,7 +254,7 @@ fn resize_server_camera(
     mut camera_transform_q: Query<&mut Transform, With<Camera2d>>
 ){
     let mut reader = resize_event.get_reader();
-    for e in reader.iter(&resize_event) {
+    for e in reader.read(&resize_event) {
         let window_size = Vec2::from((e.width, e.height));
         let size = (cfg.map_size_chunks  + Vec2::from((2., 2.))) * cfg.single_chunk_size;
         let target_scale = if window_size.x / window_size.y < size.x / size.y{
@@ -315,7 +315,7 @@ fn receive_message_system(
         while let Some(message) = server.receive_message(client_id, ClientChannel::Fast) {
             let msg: Message = bincode::deserialize::<Message>(&message).unwrap();
             match msg {
-                Message::Inputs{ keys, rotation_direction } => {
+                Message::Inputs{ inputs } => {
                     let client_data_op = clients_data.get_option_by_client_id(client_id.raw());
                     if client_data_op.is_some() {
                         let client_data = clients_data.get_by_client_id(client_id.raw());
@@ -323,17 +323,19 @@ fn receive_message_system(
 
                         if res.is_ok(){
                             let (mut velocity, transform) = res.unwrap();
-    
-                            velocity.angvel += rotation_direction.clamp(-3., 3.) * 0.01;
-        
+          
                             let mut target_direction = Vec2::ZERO;
-                            if keys.up    {target_direction.y += 1.5;} //  || buttons.pressed(MouseButton::Right
-                            if keys.down  {target_direction.y -= 0.75;}
-                            if keys.right {target_direction.x += 1.0;}
-                            if keys.left  {target_direction.x -= 1.0;}
+                            if inputs.up    {target_direction.y += 1.5;} //  || buttons.pressed(MouseButton::Right
+                            if inputs.down  {target_direction.y -= 0.75;}
+                            if inputs.right {target_direction.x += 1.0;}
+                            if inputs.left  {target_direction.x -= 1.0;}
                             
-                            velocity.linvel += Vec2::from((transform.up().x, transform.up().y)) * target_direction.y * 2.0;
-                            velocity.linvel += Vec2::from((transform.right().x, transform.right().y)) * target_direction.x * 2.0;
+                            // let it be...
+                            let target_angle = transform.up().truncate().angle_between(inputs.rotation_target);
+                            if !target_angle.is_nan(){
+                                velocity.angvel += (target_angle.clamp(-1., 1.) * 180. / PI - velocity.angvel) * 0.5;//.clamp(-1.5, 1.5);
+                            }
+                            velocity.linvel += target_direction;
                         }
                     }
                 }
@@ -361,7 +363,7 @@ fn handle_events_system(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    for event in server_events.iter() {
+    for event in server_events.read() {
         //println!("{:?}", event);
         match event {
             ServerEvent::ClientConnected { client_id } => {

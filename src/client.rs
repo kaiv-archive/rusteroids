@@ -1,4 +1,4 @@
-use std::{net::UdpSocket, time::SystemTime};
+use std::{net::UdpSocket, time::SystemTime, f32::consts::PI};
 
 use bevy::{prelude::*, DefaultPlugins, utils::HashMap, transform::commands};
 
@@ -217,51 +217,56 @@ fn send_message(
 
 fn handle_inputs_system(
     mut renet_client: ResMut<RenetClient>,
-    mut player_data: Query<(&mut Velocity, &Transform, &Object), With<CameraFollow>>, 
+    mut player_data: Query<(&mut Velocity, &Transform, &Object), With<CameraFollow>>,
     keys: Res<Input<KeyCode>>,
     buttons: Res<Input<MouseButton>>,
     window: Query<&mut Window>,
     camera_q: Query<(&Camera, &GlobalTransform), (With<Camera>, Without<PixelCamera>)>,
 ){
+    let mut inp = InputKeys::default();
+    inp.up = false;
+    inp.down = false;
+    inp.left = false;
+    inp.right = false;
+    inp.rotate_left = false;
+    inp.rotate_right = false;
+    inp.stabilize = false;
+    inp.shoot = false;
+    inp.dash = false;
+    inp.rotation_target = Vec2::ZERO;
     let player_data = player_data.get_single_mut();
     if player_data.is_err(){
         return;
     };
     let (mut vel, transform, object) = player_data.unwrap();
 
-    let mut up = false;
-    let mut down = false;
-    let mut right = false;
-    let mut left = false;
 
-    if keys.pressed(KeyCode::W){up = true} //  || buttons.pressed(MouseButton::Right
-    if keys.pressed(KeyCode::S){down = true}
-    if keys.pressed(KeyCode::A){left = true}
-    if keys.pressed(KeyCode::D){right = true}
+    if keys.pressed(KeyCode::W){inp.up = true} //  || buttons.pressed(MouseButton::Right
+    if keys.pressed(KeyCode::S){inp.down = true}
+    if keys.pressed(KeyCode::A){inp.left = true}
+    if keys.pressed(KeyCode::D){inp.right = true}
 
     
     
-    let mut target_angular_vel: f32 = 0.;
-    let window = window.single();
     if let Ok(t) = camera_q.get_single(){
         let (camera, camera_transform) = t;
-        if buttons.pressed(MouseButton::Right){
-            if let Some(world_position) = window.cursor_position()
-                .and_then(|cursor| camera.viewport_to_world(camera_transform, cursor))
-                .map(|ray| ray.origin.truncate())
-            {
-                let target_vector = world_position;// - Vec2{x: transform.translation.x, y: transform.translation.y}; 
-                let pos = Vec2{x: transform.up().x, y: transform.up().y};
-                let target_angle = (target_vector - pos).angle_between(pos);
-                if !target_angle.is_nan(){
-                    target_angular_vel = -target_angle;
-                }
-            }
+        if let Some(world_position) = window.single().cursor_position()
+            .and_then(|cursor| camera.viewport_to_world(camera_transform, cursor))
+            .map(|ray| ray.origin.truncate())
+        {
+            let target_vector = world_position;// - Vec2{x: transform.translation.x, y: transform.translation.y}; 
+            inp.rotation_target = world_position;
+            /*let pos = Vec2{x: transform.up().x, y: transform.up().y};
+            let target_angle = target_vector.angle_between(pos);
+            if !target_angle.is_nan(){
+                inp.rotation_target = -target_angle;
+            }*/
         }
     }
-    let pressed_keys = PressedKeys{ up, down, right, left };
+    
 
-    send_message(&mut renet_client, ClientChannel::Fast, Message::Inputs { keys: pressed_keys, rotation_direction: target_angular_vel });
+    println!("{}", inp.rotation_target);
+    send_message(&mut renet_client, ClientChannel::Fast, Message::Inputs { inputs: inp });
 
     //println!("{:?}", (up, down, right, left));
 }

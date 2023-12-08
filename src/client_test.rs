@@ -1,4 +1,4 @@
-use std::f32::consts::{PI, E};
+use std::f32::consts::PI;
 
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::prelude::*;
@@ -20,7 +20,6 @@ use bevy_rapier2d::dynamics::Velocity;
 use bevy_rapier2d::plugin::{RapierPhysicsPlugin, NoUserData};
 use bevy_rapier2d::render::RapierDebugRenderPlugin;
 use bevy_rapier2d::prelude::*;
-use rand::distributions::weighted;
 
 
 
@@ -57,7 +56,7 @@ fn main(){
         camera_follow,).chain()
     );
     app.insert_resource(GameSettings::default());
-    app.insert_resource(Inputs::default());
+    app.insert_resource(InputKeys::default());
     app.insert_resource(InputType::Mouse);
     app.insert_resource(GlobalConfig::default());
     game::init_pixel_camera(&mut app);
@@ -158,49 +157,9 @@ fn setup(
 
 }
 
-#[derive(Resource, PartialEq, Eq)]
-pub enum InputType{
-    Keyboard,
-    Mouse
-}
-
-#[derive(Resource)]
-pub struct Inputs{
-    pub up: bool,
-    pub down: bool,
-    pub left: bool,
-    pub right: bool,
-    pub rotate_left: bool,
-    pub rotate_right: bool,
-    pub rotation_target: f32,
-    pub stabilize: bool,
-    pub shoot: bool,
-    pub dash: bool,
-    pub fixed_camera_z: bool,
-    pub input_type: InputType,
-}
-
-impl Default for Inputs{
-    fn default() -> Self {
-        Inputs {
-            up: false,
-            down: false,
-            left: false,
-            right: false,
-            rotate_left: false,
-            rotate_right: false,
-            rotation_target: 0.3,
-            stabilize: false,
-            shoot: false,
-            dash: false,
-            fixed_camera_z: false,
-            input_type: InputType::Mouse,
-        }
-    }
-}
 
 fn handle_inputs(
-    mut inp: ResMut<Inputs>,
+    mut inp: ResMut<InputKeys>,
     mut player_data: Query<(&mut Velocity, &Transform, &Object), With<CameraFollow>>, 
     keys: Res<Input<KeyCode>>,
     buttons: Res<Input<MouseButton>>,
@@ -222,7 +181,7 @@ fn handle_inputs(
     inp.stabilize = false;
     inp.shoot = false;
     inp.dash = false;
-    inp.rotation_target = 0.;
+    inp.rotation_target = Vec2::ZERO;
     match *input_type{
         InputType::Keyboard => {
             inp.fixed_camera_z = false;
@@ -271,16 +230,16 @@ fn handle_inputs(
                     .map(|ray| ray.origin.truncate())
                 {
                     let target_vector = world_position;// - Vec2{x: transform.translation.x, y: transform.translation.y}; 
-                    let pos = Vec2{x: transform.up().x, y: transform.up().y};
-                    let target_angle = (target_vector - pos).angle_between(pos);
-                    if !target_angle.is_nan(){
+                    let pos = Vec2::Y;
+                    inp.rotation_target = target_vector;
+                    /*if !target_angle.is_nan(){
                         inp.rotation_target = -target_angle;
                         if target_angle < 0.{
                             inp.rotate_left = true;
                         } else {
                             inp.rotate_right = true;
                         }
-                    }
+                    }*/
                 }
             }
         }
@@ -313,7 +272,7 @@ fn camera_follow(
 }
 
 fn update(
-    inp: Res<Inputs>,
+    inp: Res<InputKeys>,
     mut res: Query<(&mut Velocity, &mut Transform), With<CameraFollow>>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -322,7 +281,6 @@ fn update(
     mut cfg: ResMut<GlobalConfig>,
     input_type: Res<InputType>,
 ){
-    
     // INPUTS
     let (mut velocity, transform) = res.single_mut();
     
@@ -334,7 +292,12 @@ fn update(
         rotation_direction -= 1.;
     }
     // let it be...
-    velocity.angvel += ((inp.rotation_target.clamp(-1., 1.) * 180. / PI - velocity.angvel) * 0.5);//.clamp(-1.5, 1.5);
+    let target = inp.rotation_target;
+    let target_angle = transform.up().truncate().angle_between(target);
+    if !target_angle.is_nan(){
+        velocity.angvel += (target_angle.clamp(-1., 1.) * 180. / PI - velocity.angvel) * 0.5;//.clamp(-1.5, 1.5);
+    }
+    
     //velocity.angvel += -k * velocity.angvel * (velocity.angvel / maxspeed) * ((inp.rotation_target * 180. / PI)/PI);
     //if velocity.angvel == 0.{velocity.angvel = 0.1};
     //velocity.angvel += -k * ();
@@ -416,6 +379,18 @@ fn update(
     }
 }
 
+
+
+const STARFIELD_STARS : usize = 5000;
+
+fn distance_distribution(x: f32) -> f32{
+    if x < 0.5{
+        0.1 + x / 5.
+    } else{
+        (1. - (1. - x.powi(10)).powi(2)) * 0.9 + 0.2
+    } 
+}
+
 #[derive(Component)]
 struct Star{depth: f32}
 
@@ -427,16 +402,6 @@ pub struct StarClass{
     size: (f32, f32),
     chance: f32,
     color: Color,
-}
-
-const STARFIELD_STARS : usize = 5000;
-
-fn distance_distribution(x: f32) -> f32{
-    if x < 0.5{
-        0.1 + x / 5.
-    } else{
-        (1. - (1. - x.powi(10)).powi(2)) * 0.9 + 0.2
-    } 
 }
 
 fn starfield_update(
