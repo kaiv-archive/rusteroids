@@ -75,7 +75,7 @@ fn setup(
 ){
     window.single_mut().resolution.set(1280., 720.);
     
-    let player_data = ClientData::for_spawn(0, [1.; 3], cfg.new_id());
+    let player_data = ClientData::for_spawn(0, Color::WHITE, cfg.new_id());
     let e = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &player_data);
 
     commands.entity(e).insert(CameraFollow);

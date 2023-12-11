@@ -78,7 +78,7 @@ pub struct ClientData{
     pub object_id: u64,
     pub entity: Entity,
     pub style: u8,
-    pub color: [f32; 3],
+    pub color: Color,
     pub name: String,
 }
 impl Default for ClientsData {
@@ -93,7 +93,7 @@ impl Default for ClientsData {
 impl ClientData{
     pub fn for_spawn(
         style: u8,
-        color: [f32; 3],
+        color: Color,
         object_id: u64,
     ) -> Self{
         ClientData {

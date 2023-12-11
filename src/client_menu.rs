@@ -47,7 +47,7 @@ pub fn despawn_menu(
 pub fn update_preview_ship(
     mut commands: Commands,
     mut prev_style: Local<u8>,
-    mut prev_color: Local<[f32; 3]>,
+    mut prev_color: Local<Color>,
     mut ship_preview: Query<(Entity, &mut Transform), With<ShipPreview>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
@@ -88,7 +88,7 @@ pub fn setup_preview_camera(
         object_id: 0,
         style: 0,
         entity: Entity::PLACEHOLDER,
-        color: [1.; 3],
+        color: Color::WHITE,
         name: "".into(),
     });
 
@@ -335,7 +335,8 @@ pub fn egui_based_menu(
                 if let Ok(_) = (*port).parse::<i32>(){
                     connect_properties.adress = format!("{}:{}", *adress, *port).into();
                     let style: u8 = ship_style.0 * 64 + ship_style.2 as u8 * 32 + ship_style.3 as u8* 16 + ship_style.4 as u8  * 8 + ship_style.5 as u8 * 4 + ship_style.6 as u8 * 2 + ship_style.1 as u8;
-                    writer_init.send(InitClient{style: style});
+                    settings.style = style;
+                    writer_init.send(InitClient);
                     next_state.set(ClientState::InGame);
                 }
             }
@@ -483,7 +484,7 @@ pub fn egui_based_menu(
             let cd = clientsdata.get_mut_by_client_id(0);
             let style: u8 = ship_style.0 * 64 + ship_style.2 as u8 * 32 + ship_style.3 as u8* 16 + ship_style.4 as u8  * 8 + ship_style.5 as u8 * 4 + ship_style.6 as u8 * 2 + ship_style.1 as u8;
             cd.style = style;
-            cd.color = settings.color;
+            cd.color = Color::from(settings.color);
             // CONVERT INTO STYLE ID
             ui.image(
                 SizedTexture{

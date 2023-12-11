@@ -1,6 +1,6 @@
 use std::{net::{UdpSocket, SocketAddr}, time::SystemTime, f32::consts::PI};
 
-use bevy::{prelude::*, core_pipeline::clear_color::ClearColorConfig, window::WindowResized, transform::commands};
+use bevy::{prelude::*, core_pipeline::clear_color::ClearColorConfig, window::WindowResized, transform::commands, utils::hashbrown::HashMap};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_rapier2d::{prelude::{RapierPhysicsPlugin, NoUserData, Velocity}, render::RapierDebugRenderPlugin};
 use bevy_renet::{renet::{*, transport::*}, RenetServerPlugin, transport::NetcodeServerPlugin};
@@ -191,9 +191,8 @@ fn setup_game(
         protocol_id: GAME_PROTOCOL_ID,
         public_addresses: server_addr,
         current_time: current_time,
-        authentication: ServerAuthentication::Unsecure
+        authentication: ServerAuthentication::Unsecure // todo: change to secure
     };
-
     
     let transport = NetcodeServerTransport::new(server_config, socket).unwrap();
     commands.insert_resource(transport);
@@ -211,6 +210,10 @@ fn setup_game(
             Camera2dBundle{
                 camera_2d: Camera2d {
                     clear_color: ClearColorConfig::Custom(Color::Rgba { red: 0., green: 0., blue: 0., alpha: 1. }),
+                    ..default()
+                },
+                camera: Camera{
+                    hdr: true,
                     ..default()
                 },
                 transform: Transform::from_xyz(mid.x, mid.y, 0.).with_scale(Vec3::splat(target_scale)),
@@ -272,42 +275,79 @@ fn send_message_system(
     mut server: ResMut<RenetServer>,
     clients_data: Res<ClientsData>,
     mut commands: Commands,
-    mut objects_q: Query<(&Object, &Velocity, &Transform), (With<Object>, Without<Puppet>)>
+    mut objects_q: Query<(&Object, &Velocity, &Transform), (With<Object>, Without<Puppet>)>,
+    cfg: ResMut<GlobalConfig>,
 ) {
 
     // todo: SEND ONLY 9 CHUNKS AROUND!!! (or no...)
 
     let mut data: Vec<ObjectData> = vec![];
+
+    let mut chunk_to_objects: HashMap<(u32, u32), Vec<ObjectData>> = HashMap::new();
+
     for object in objects_q.iter(){
         let (object, velocity, transform) = object;
+        let object_data = ObjectData{
+            object: object.clone(),
+            angular_velocity: velocity.angvel,
+            linear_velocity: velocity.linvel,
+            translation: transform.translation,
+            rotation: transform.rotation,
+        };
         data.push(
-            ObjectData{
-                object: object.clone(),
-                angular_velocity: velocity.angvel,
-                linear_velocity: velocity.linvel,
-                translation: transform.translation,
-                rotation: transform.rotation,
-            }
-        )
+            object_data.clone()
+        );
+        let chunk_pos = cfg.pos_to_chunk(&transform.translation);
+        let key = (chunk_pos.x as u32, chunk_pos.y as u32);
+        if chunk_to_objects.contains_key(&key){
+            
+        } else {
+            chunk_to_objects.insert((chunk_pos.x as u32, chunk_pos.y as u32), vec![object_data]);
+        }
     }
 
 
     for client_id in server.clients_id().into_iter() {
-        
+        let cd = clients_data.get_option_by_client_id(client_id.raw());
+        if cd.is_some(){
+            let e = cd.unwrap().entity;
+            let o = objects_q.get(e);
+            if o.is_ok(){
+                let (_, _, t) = o.unwrap();
+                let chunk = cfg.pos_to_chunk(&t.translation);
+                let mut personalised_data: Vec<ObjectData> = vec![];
+                for x in (chunk.x as i32) - 1 .. chunk.x as i32 + 2 {
+                    for y in (chunk.y as i32) - 1 .. chunk.y as i32 + 2{
+                        let real_chunk = cfg.chunk_to_real_chunk_v2(&Vec2{x: x as f32, y: y as f32});
+                        let objects_in_chunk = chunk_to_objects.get(&(real_chunk.x as u32, real_chunk.y as u32));
+                        if objects_in_chunk.is_some(){
+                            for object_data in objects_in_chunk.unwrap().iter(){
+                                personalised_data.push(object_data.clone());
+                            }
+                        }
+                    }
+                }
 
-        let msg = Message::Update {
-            data: data.clone()
-        };
-        let encoded: Vec<u8> = bincode::serialize(&msg).unwrap();
-        server.send_message(client_id, ServerChannel::Fast, encoded);
+
+                let msg = Message::Update {
+                    data: personalised_data
+                };
+                let encoded: Vec<u8> = bincode::serialize(&msg).unwrap();
+                server.send_message(client_id, ServerChannel::Fast, encoded);
+            }
+        }
     }
 }
 
 
 fn receive_message_system(
     mut server: ResMut<RenetServer>,
-    clients_data: Res<ClientsData>,
+    mut clients_data: ResMut<ClientsData>,
     mut commands: Commands,
+    mut cfg: ResMut<GlobalConfig>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    transport: Res<NetcodeServerTransport>,
     mut ships_q: Query<(&mut Velocity, &Transform), (With<Ship>, Without<Puppet>)>
 ) {
      // Send a text message for all clients
@@ -318,7 +358,7 @@ fn receive_message_system(
                 Message::Inputs{ inputs } => {
                     let client_data_op = clients_data.get_option_by_client_id(client_id.raw());
                     if client_data_op.is_some() {
-                        let client_data = clients_data.get_by_client_id(client_id.raw());
+                        let client_data = client_data_op.unwrap();
                         let res = ships_q.get_mut(client_data.entity);
 
                         if res.is_ok(){
@@ -351,6 +391,41 @@ fn receive_message_system(
             match msg {
                 Message::RegisterClient { style, color, name } => {
                     
+                    // todo: check color!
+                    
+                    /* SPAWN */
+                    let object_id = cfg.new_id();
+
+                    let for_spawn_cl_data = ClientData::for_spawn(style, color, object_id);
+                    let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &for_spawn_cl_data);
+
+                    let new_client_data = ClientData { 
+                        client_id: client_id.raw(),
+                        object_id: object_id,
+                        entity: entity,
+                        style: style,
+                        color: color, 
+                        name: name.to_string() 
+                    };
+                    clients_data.add(new_client_data.clone());
+                    println!("register new client with id {}", client_id);
+
+                    // SEND DATA TO CONNECTED PLAYER
+                    let cfg_clone = cfg.clone();
+                    cfg.debug_render = false;
+                    let msg = Message::OnConnect{
+                        clients_data: clients_data.clone(),
+                        ship_object_id: object_id,
+                        config: cfg_clone
+                    };
+                    let encoded: Vec<u8> = bincode::serialize(&msg).unwrap();
+                    server.send_message(client_id, ServerChannel::Garanteed, encoded);
+
+                    // SEND CONNECTION MESSAGE TO ALL
+                    let msg = Message::NewConnection {client_data: new_client_data};
+                    let encoded: Vec<u8> = bincode::serialize(&msg).unwrap();
+                    server.broadcast_message(ServerChannel::Garanteed, encoded);
+                    
                 }
                 msg_type => {
                     warn!("Unhandled message recived on server!");
@@ -376,61 +451,24 @@ fn handle_events_system(
         //println!("{:?}", event);
         match event {
             ServerEvent::ClientConnected { client_id } => {
-
                 // ADD CLIENT TO SERVER DB
                 visualizer.add_client(*client_id);
-                let data = transport.user_data(*client_id).unwrap();
-                let mut byte_seq:Vec<u8> = vec![];
-                let mut firstbyte = false;
-                for i in 0..(256 - 4){
-                    let d = data[255 - i];
-                    if d != 0 || firstbyte == true{
-                        byte_seq.push(d);
-                        firstbyte = true;
-                    }
-                }
-                byte_seq.reverse();
-                let name = match std::str::from_utf8(&byte_seq) {
-                    Ok(s) => {s}
-                    Err(_) => {todo!("KICK")}
-                };
-                
-                /* SPAWN */
-                let object_id = cfg.new_id();
-
-                let for_spawn_cl_data = ClientData::for_spawn(data[3], [data[0] as f32 / 255., data[1] as f32 / 255., data[2] as f32 / 255.], object_id);
-                let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &for_spawn_cl_data);
-
-                let new_client_data = ClientData { 
-                    client_id: client_id.raw(),
-                    object_id: object_id,
-                    entity: entity,
-                    style: data[3],
-                    color: [data[0] as f32 / 255., data[1] as f32 / 255., data[2] as f32 / 255.], 
-                    name: name.to_string() 
-                };
-                clients_data.add(new_client_data.clone());
-                println!("register new client with id {}", client_id);
-
-                // SEND DATA TO CONNECTED PLAYER
-                let cfg_clone = cfg.clone();
-                cfg.debug_render = false;
-                let msg = Message::OnConnect{
-                    clients_data: clients_data.clone(),
-                    ship_object_id: object_id,
-                    config: cfg_clone
-                };
-                let encoded: Vec<u8> = bincode::serialize(&msg).unwrap();
+                println!("New client with id {} connected", client_id);
+                let encoded: Vec<u8> = bincode::serialize(&Message::Greeteng {}).unwrap();
                 server.send_message(*client_id, ServerChannel::Garanteed, encoded);
-
-                // SEND CONNECTION MESSAGE TO ALL
-                let msg = Message::NewConnection {client_data: new_client_data};
-                let encoded: Vec<u8> = bincode::serialize(&msg).unwrap();
-                server.broadcast_message(ServerChannel::Garanteed, encoded);
             }
             ServerEvent::ClientDisconnected { client_id, reason } => {
                 visualizer.remove_client(*client_id);
                 println!("Client {client_id} disconnected: {reason}");
+                let data = clients_data.get_option_by_client_id(client_id.raw());
+                if data.is_some(){
+                    commands.entity(data.unwrap().entity).despawn_recursive();
+                }
+                clients_data.remove_by_client_id(client_id.raw()); // todo: add reconnection (may be hard, but if use unique u64 for every client, possible)
+                let msg = Message::NewDisconnection { id: client_id.raw()};
+                let encoded: Vec<u8> = bincode::serialize(&msg).unwrap();
+                
+                server.broadcast_message_except(*client_id, ServerChannel::Garanteed, encoded);
             }
         }
     }

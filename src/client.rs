@@ -31,7 +31,7 @@ enum ClientState {
 }
 
 #[derive(Event)]
-struct InitClient{pub style: u8}
+struct InitClient;
 
 fn main(){
     let mut app = App::new();
@@ -272,40 +272,60 @@ fn receive_message_system(
     mut local_clients_data: ResMut<ClientsData>,
     mut commands: Commands,
     mut objects_q: Query<(Entity, &Object, &mut Velocity, &mut Transform), (With<Object>, Without<Puppet>)>,
+    mut followed_q: Query<(Entity, &Object), With<CameraFollow>>,
     mut loaded_chunks: ResMut<LoadedChunks>,
-    mut cached_entities: Local<HashMap<u64, Entity>> // object_id => entity
-) {
-    for object in objects_q.iter(){
+    mut cached_entities: Local<HashMap<u64, Entity>>, // object_id => entity
+){
+    if client.is_disconnected(){
+        next_state.set(ClientState::Menu);
+    }
+
+    /*let self_data = local_clients_data.get_option_by_client_id(transport.client_id());
+    
+    let follow_object /* self */ = followed_q.get_single();
+    if follow_object.is_err() && self_data.is_some(){
+        for object in objects_q.iter(){
+            let (entity, object, _, _) = object;
+            if object.id == self_data.unwrap().object_id{
+                cached_entities.insert(object.id, entity);
+                commands.entity(entity).insert(CameraFollow);
+            }
+        }
+    }*/
+    /*for object in objects_q.iter(){
         let (entity, object, _, _) = object;
         let object_id = object.id;
         if !cached_entities.contains_key(&object_id){
             cached_entities.insert(object_id, entity);
         }
-    }
-
-    if client.is_disconnected(){
-        next_state.set(ClientState::Menu);
-    }
-
+    }*/
+    //println!("{:?}", cached_entities);
     while let Some(message) = client.receive_message(ServerChannel::Fast) {
         let msg: Message = bincode::deserialize::<Message>(&message).unwrap();
         match msg {
             Message::Update { data } => {
+                let mut iterated_entities: Vec<Entity> = vec![];
                 for object_data in data.iter(){
                     //println!("target {:?} my {:?} vel {:?}", object_data.object.id, my_id, object_data.linear_velocity);
                     if cached_entities.contains_key(&object_data.object.id){
                         // UPDATE ENTITY
-                        let (_, _, mut velocity, mut transform) = objects_q.get_mut(*cached_entities.get(&object_data.object.id).unwrap()).unwrap();
-                        velocity.angvel = object_data.angular_velocity;
-                        velocity.linvel = object_data.linear_velocity;
-                        transform.translation = object_data.translation;
-                        transform.rotation = object_data.rotation;
-
+                        let object_r = objects_q.get_mut(*cached_entities.get(&object_data.object.id).unwrap());
+                        if object_r.is_ok(){
+                            let (e, _, mut velocity, mut transform) = object_r.unwrap();
+                            velocity.angvel = object_data.angular_velocity;
+                            velocity.linvel = object_data.linear_velocity;
+                            transform.translation = object_data.translation;
+                            transform.rotation = object_data.rotation;
+                            iterated_entities.push(e);
+                        } else {
+                            //cached_entities.remove(&object_data.object.id);
+                            println!("{} need to be removed!", &object_data.object.id)
+                        }
                     } else {
                         // SPAWN NEW ENTITY
-                        match object_data.object.object_type {
+                        let t = match object_data.object.object_type {
                             ObjectType::Asteroid { seed, hp:_ } => {
-                                spawn_asteroid(
+                                let e = spawn_asteroid(
                                     seed, 
                                     Velocity { linvel: object_data.linear_velocity, angvel: object_data.angular_velocity }, 
                                     Transform::from_translation(object_data.translation).with_rotation(object_data.rotation), 
@@ -315,9 +335,10 @@ fn receive_message_system(
                                     object_data.object.id,
                                     cfg.get_asteroid_hp(seed),
                                 );
+                                Some((e, object_data.object.id))
                             },
                             ObjectType::Bullet => {
-
+                                None
                             },
                             ObjectType::Ship => {
                                 let client_op = local_clients_data.get_option_by_object_id(object_data.object.id);
@@ -325,6 +346,7 @@ fn receive_message_system(
                                     let client = client_op.unwrap();
                                     let name = &client.name;
                                     let e = spawn_ship(false, &mut meshes, &mut materials, &mut commands, client);
+                                    println!("SPAWNED SHIP FOR {} WITH ID {} HIS E IS {:?}", client.client_id, client.object_id, e);
                                     commands.entity(e).insert((
                                         Name::new(format!("Player {}", name)),
                                         Object{
@@ -332,10 +354,31 @@ fn receive_message_system(
                                             object_type: ObjectType::Ship
                                         }
                                     ));
+                                    Some((e, object_data.object.id))
+                                } else {
+                                    None
                                 }
                             }
+                        };
+                        if t.is_some(){
+                            let (e, id) = t.unwrap();
+                            cached_entities.insert(id, e);
+                            iterated_entities.push(e);
+                            println!("ADDED BIND FOR WITH ID {} -> E {:?}", id, e);
                         }
                     }
+                }
+                let mut to_remove = vec![];
+                let ce = cached_entities.clone();
+                for (k, e) in ce.iter(){
+                    if !iterated_entities.contains(e){
+                        commands.entity(*e).despawn_recursive();
+                        println!("DESPAWNED ID {} -> E {:?}", k, e);
+                        to_remove.push(k);
+                    }
+                }
+                for k in to_remove.iter(){
+                    cached_entities.remove(*k);
                 }
             }
             msg_type => {
@@ -354,9 +397,8 @@ fn receive_message_system(
                 let player_data = local_clients_data.get_by_client_id(transport.client_id());
             
                 let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, player_data);
-
+                println!("<init> SPAWNED SHIP FOR {} WITH ID {}", player_data.client_id, player_data.object_id);
                 //commands.entity(*cached_entities.get(&0).unwrap()).insert(Object{id: ship_object_id, object_type: ObjectType::Ship});
-
                 commands.entity(entity).insert((
                     CameraFollow,
                     Object{
@@ -364,6 +406,9 @@ fn receive_message_system(
                         object_type: ObjectType::Ship
                     },
                 ));
+                
+                cached_entities.insert(ship_object_id, entity);
+
                 for x in -1..(cfg.map_size_chunks.x as i32 + 1){ // include shadow chunks
                     for y in -1..(cfg.map_size_chunks.y as i32 + 1){
                         loaded_chunks.chunks.push(Chunk { pos: Vec2::from((x as f32, y as f32)) });
@@ -372,6 +417,9 @@ fn receive_message_system(
             },
             Message::NewConnection { client_data } => {
                 local_clients_data.add(client_data)
+            }
+            Message::NewDisconnection { id } => {
+                local_clients_data.remove_by_client_id(id)
             }
             Message::Greeteng {  } => {
                 send_message(
@@ -418,6 +466,10 @@ pub struct StarClass{
     color: Color,
 }
 
+
+// todo: add shooting stars
+// todo: add some values to settings!
+// todo: add handle of screen resize
 fn starfield_update(
     resize_event: Res<Events<WindowResized>>,
     mut commands: Commands,
@@ -445,7 +497,8 @@ fn starfield_update(
         *max_dist_squared = 2. * (max_size.powi(2));
         *max_dist = max_dist_squared.sqrt();
     }
-    let (player_transform, player_velocity) = player.single();
+    let p = player.get_single();
+    let (player_transform, player_velocity) = if p.is_err(){return;} else {p.unwrap()};
     if star_layer_q.get_single().is_ok(){
         star_layer_q.single_mut().0.translation = player_transform.translation;
     }
