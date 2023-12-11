@@ -177,10 +177,17 @@ pub enum ApplyCameraSettings{
 #[derive (Resource)]
 pub struct GlobalConfig{
     pub last_id: u64,
-    pub map_size_chunks: Vec2, //          !!!MUST BE INTEGER!!!
+    pub map_size_chunks: Vec2, //   !!!MUST BE INTEGER!!!
     pub single_chunk_size: Vec2, // !!!MUST BE INTEGER!!!
     pub debug_render: bool,
     pub asteroid_hp: [i8; 3],
+    pub player_hp: f32,
+    pub player_shields: f32,
+    pub bullet_damage: f32,
+    pub dash_cd_secs: f32,
+    pub shoot_cd_secs: f32,
+    pub bullet_lifetime_secs: f32,
+
 }
 impl Default for GlobalConfig {
     fn default() -> Self {
@@ -190,6 +197,12 @@ impl Default for GlobalConfig {
             single_chunk_size: Vec2{x: 500., y: 500.},
             debug_render: false,
             asteroid_hp: [1, 1, 1],
+            player_hp: 100.,
+            player_shields: 100.,
+            bullet_damage: 20.,
+            dash_cd_secs: 3.,
+            shoot_cd_secs: 0.5,
+            bullet_lifetime_secs: 10.,
         }
     }
 }
@@ -295,15 +308,25 @@ pub struct PuppetPlayer;
 
 
 #[derive(Serialize, Deserialize)]
-#[derive (Clone)]   // !!!!!!!!!!!!!!!!!!!!!!!!!
-pub enum ObjectType{ // todo: ASTEROID SEED, BULLET OWNER(FOR COLOR), SHIP STYLE INSIDE ENUM!!!
-    Asteroid{
-        seed: u64,
-        hp: u8,
-    },
+#[derive (Clone)]
+pub enum ObjectType{ // todo: ASTEROID SEED, BULLET OWNER(FOR COLOR), SHIP STYLE INSIDE ENUM!!! (for what?)
+    Asteroid{seed: u64, hp: u8},
     Bullet,
     Ship,
+    PickUP{pickup_type: PickUPType},
 }
+
+#[derive(Serialize, Deserialize)]
+#[derive (Clone, Copy)]
+pub enum PickUPType{
+    Heal,
+    DoubleDamage,
+    Haste,
+    SuperShield,
+    Invisibility,
+    Mine,
+}
+
 
 #[derive(Component)]
 pub struct ShipPreview;

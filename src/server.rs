@@ -1,6 +1,6 @@
-use std::{net::{UdpSocket, SocketAddr}, time::SystemTime, f32::consts::PI};
+use std::{net::{UdpSocket, SocketAddr}, time::SystemTime, f32::consts::PI, collections::{HashMap, HashSet}};
 
-use bevy::{prelude::*, core_pipeline::clear_color::ClearColorConfig, window::WindowResized, transform::commands, utils::hashbrown::HashMap};
+use bevy::{prelude::*, core_pipeline::clear_color::ClearColorConfig, window::WindowResized};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_rapier2d::{prelude::{RapierPhysicsPlugin, NoUserData, Velocity}, render::RapierDebugRenderPlugin};
 use bevy_renet::{renet::{*, transport::*}, RenetServerPlugin, transport::NetcodeServerPlugin};
@@ -50,8 +50,12 @@ fn main(){
     app.insert_resource(LoadedChunks{chunks: vec![]});
     app.insert_resource(GlobalConfig{
         map_size_chunks: Vec2{
-            x: 1.,
-            y: 1.
+            x: 2.,
+            y: 2.
+        },
+        single_chunk_size: Vec2{
+            x: 1000.,
+            y: 1000.,
         },
         ..default()
     });
@@ -76,7 +80,8 @@ fn main(){
         // multiplayer connection systems
         send_message_system,
         receive_message_system,
-        handle_events_system
+        handle_events_system,
+        //check_bullet_collisions_and_lifetime
     ).run_if(in_state(ServerState::Running)));
     //app.add_systems(OnExit(ServerState::Running), cleanup_menu)
 
@@ -109,7 +114,7 @@ fn menu(
 
     let style = Style{
         visuals: Visuals{
-            window_rounding: Rounding::none(),
+            window_rounding: Rounding::ZERO,
             window_shadow: Shadow::NONE,
             window_fill: Color32::from_rgba_unmultiplied(0, 0, 0, 230),
             window_stroke: Stroke{
@@ -299,8 +304,10 @@ fn send_message_system(
         );
         let chunk_pos = cfg.pos_to_chunk(&transform.translation);
         let key = (chunk_pos.x as u32, chunk_pos.y as u32);
+
         if chunk_to_objects.contains_key(&key){
-            
+            let v = chunk_to_objects.get_mut(&key).unwrap();
+            v.push(object_data);
         } else {
             chunk_to_objects.insert((chunk_pos.x as u32, chunk_pos.y as u32), vec![object_data]);
         }
@@ -315,20 +322,20 @@ fn send_message_system(
             if o.is_ok(){
                 let (_, _, t) = o.unwrap();
                 let chunk = cfg.pos_to_chunk(&t.translation);
+                let mut included_chunks = HashSet::new(); // exclude overlapping chunks if map is small size of (1; 1) -> 8*(1; 1) same chunks with same objects
                 let mut personalised_data: Vec<ObjectData> = vec![];
                 for x in (chunk.x as i32) - 1 .. chunk.x as i32 + 2 {
                     for y in (chunk.y as i32) - 1 .. chunk.y as i32 + 2{
                         let real_chunk = cfg.chunk_to_real_chunk_v2(&Vec2{x: x as f32, y: y as f32});
                         let objects_in_chunk = chunk_to_objects.get(&(real_chunk.x as u32, real_chunk.y as u32));
-                        if objects_in_chunk.is_some(){
+                        if objects_in_chunk.is_some() && !included_chunks.contains(&(real_chunk.x as u32, real_chunk.y as u32)){
                             for object_data in objects_in_chunk.unwrap().iter(){
                                 personalised_data.push(object_data.clone());
                             }
+                            included_chunks.insert((real_chunk.x as u32, real_chunk.y as u32));
                         }
                     }
                 }
-
-
                 let msg = Message::Update {
                     data: personalised_data
                 };

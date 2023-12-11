@@ -67,6 +67,7 @@ impl Default for GameSettings {
             beams_coloroffset_g: 0.1, // ADD IMPLEMENTATION!!
             beams_coloroffset_b: 0.1, // ADD IMPLEMENTATION!!
             beams_color: Color::WHITE, // ADD IMPLEMENTATION!!
+            // todo ADD MSAA SAMPLING SETTING!
             // GRAPHICS VFX SETTINGS 
             bloom_intensity: 0.1, 
             deband_dither: DebandDither::Enabled,

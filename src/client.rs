@@ -274,130 +274,112 @@ fn receive_message_system(
     mut objects_q: Query<(Entity, &Object, &mut Velocity, &mut Transform), (With<Object>, Without<Puppet>)>,
     mut followed_q: Query<(Entity, &Object), With<CameraFollow>>,
     mut loaded_chunks: ResMut<LoadedChunks>,
-    mut cached_entities: Local<HashMap<u64, Entity>>, // object_id => entity
 ){
     if client.is_disconnected(){
         next_state.set(ClientState::Menu);
     }
-
-    /*let self_data = local_clients_data.get_option_by_client_id(transport.client_id());
-    
-    let follow_object /* self */ = followed_q.get_single();
-    if follow_object.is_err() && self_data.is_some(){
-        for object in objects_q.iter(){
-            let (entity, object, _, _) = object;
-            if object.id == self_data.unwrap().object_id{
-                cached_entities.insert(object.id, entity);
-                commands.entity(entity).insert(CameraFollow);
-            }
-        }
-    }*/
-    /*for object in objects_q.iter(){
-        let (entity, object, _, _) = object;
-        let object_id = object.id;
-        if !cached_entities.contains_key(&object_id){
-            cached_entities.insert(object_id, entity);
-        }
-    }*/
-    //println!("{:?}", cached_entities);
+    let mut existing_objects = HashMap::new();
+    for (e, object, _, _) in objects_q.iter(){
+        existing_objects.insert(object.id, e);
+    }
+    let mut entities_to_keep = vec![];
+    let mut data_to_update = vec![];
     while let Some(message) = client.receive_message(ServerChannel::Fast) {
         let msg: Message = bincode::deserialize::<Message>(&message).unwrap();
         match msg {
             Message::Update { data } => {
-                let mut iterated_entities: Vec<Entity> = vec![];
-                for object_data in data.iter(){
-                    //println!("target {:?} my {:?} vel {:?}", object_data.object.id, my_id, object_data.linear_velocity);
-                    if cached_entities.contains_key(&object_data.object.id){
-                        // UPDATE ENTITY
-                        let object_r = objects_q.get_mut(*cached_entities.get(&object_data.object.id).unwrap());
-                        if object_r.is_ok(){
-                            let (e, _, mut velocity, mut transform) = object_r.unwrap();
-                            velocity.angvel = object_data.angular_velocity;
-                            velocity.linvel = object_data.linear_velocity;
-                            transform.translation = object_data.translation;
-                            transform.rotation = object_data.rotation;
-                            iterated_entities.push(e);
-                        } else {
-                            //cached_entities.remove(&object_data.object.id);
-                            println!("{} need to be removed!", &object_data.object.id)
-                        }
-                    } else {
-                        // SPAWN NEW ENTITY
-                        let t = match object_data.object.object_type {
-                            ObjectType::Asteroid { seed, hp:_ } => {
-                                let e = spawn_asteroid(
-                                    seed, 
-                                    Velocity { linvel: object_data.linear_velocity, angvel: object_data.angular_velocity }, 
-                                    Transform::from_translation(object_data.translation).with_rotation(object_data.rotation), 
-                                    &mut meshes, 
-                                    &mut materials, 
-                                    &mut commands,
-                                    object_data.object.id,
-                                    cfg.get_asteroid_hp(seed),
-                                );
-                                Some((e, object_data.object.id))
-                            },
-                            ObjectType::Bullet => {
-                                None
-                            },
-                            ObjectType::Ship => {
-                                let client_op = local_clients_data.get_option_by_object_id(object_data.object.id);
-                                if client_op.is_some(){
-                                    let client = client_op.unwrap();
-                                    let name = &client.name;
-                                    let e = spawn_ship(false, &mut meshes, &mut materials, &mut commands, client);
-                                    println!("SPAWNED SHIP FOR {} WITH ID {} HIS E IS {:?}", client.client_id, client.object_id, e);
-                                    commands.entity(e).insert((
-                                        Name::new(format!("Player {}", name)),
-                                        Object{
-                                            id: object_data.object.id,
-                                            object_type: ObjectType::Ship
-                                        }
-                                    ));
-                                    Some((e, object_data.object.id))
-                                } else {
-                                    None
-                                }
-                            }
-                        };
-                        if t.is_some(){
-                            let (e, id) = t.unwrap();
-                            cached_entities.insert(id, e);
-                            iterated_entities.push(e);
-                            println!("ADDED BIND FOR WITH ID {} -> E {:?}", id, e);
-                        }
-                    }
-                }
-                let mut to_remove = vec![];
-                let ce = cached_entities.clone();
-                for (k, e) in ce.iter(){
-                    if !iterated_entities.contains(e){
-                        commands.entity(*e).despawn_recursive();
-                        println!("DESPAWNED ID {} -> E {:?}", k, e);
-                        to_remove.push(k);
-                    }
-                }
-                for k in to_remove.iter(){
-                    cached_entities.remove(*k);
-                }
+                data_to_update = data;
             }
             msg_type => {
                 warn!("Unhandled message recived on client!");
             }
         }
-        
     }
+
+    // UPDATE OBJECTS
+    if data_to_update.len() != 0{
+        for object_data in data_to_update.iter(){
+            if existing_objects.contains_key(&object_data.object.id){
+                // UPDATE ENTITY
+                let object_r = objects_q.get_mut(*existing_objects.get(&object_data.object.id).unwrap());
+                let (e, _, mut velocity, mut transform) = object_r.unwrap();
+                velocity.angvel = object_data.angular_velocity;
+                velocity.linvel = object_data.linear_velocity;
+                transform.translation = object_data.translation;
+                transform.rotation = object_data.rotation;
+                entities_to_keep.push(e);
+            } else {
+                // SPAWN NEW ENTITY
+                let t = match object_data.object.object_type {
+                    ObjectType::Asteroid { seed, hp:_ } => {
+                        let e = spawn_asteroid(
+                            seed, 
+                            Velocity { linvel: object_data.linear_velocity, angvel: object_data.angular_velocity }, 
+                            Transform::from_translation(object_data.translation).with_rotation(object_data.rotation), 
+                            &mut meshes, 
+                            &mut materials, 
+                            &mut commands,
+                            object_data.object.id,
+                            cfg.get_asteroid_hp(seed),
+                        );
+                        Some((e, object_data.object.id))
+                    },
+                    ObjectType::Bullet => {
+                        None
+                    },
+                    ObjectType::Ship => {
+                        let client_op = local_clients_data.get_option_by_object_id(object_data.object.id);
+                        if client_op.is_some(){
+                            let clientdata = client_op.unwrap();
+                            let name = &clientdata.name;
+                            let e = spawn_ship(false, &mut meshes, &mut materials, &mut commands, clientdata);
+                            //println!("SPAWNED SHIP FOR {} WITH ID {} -> E {:?}", client.client_id, client.object_id, e);
+                            commands.entity(e).insert((
+                                Name::new(format!("Player {}", name)),
+                                Object{
+                                    id: object_data.object.id,
+                                    object_type: ObjectType::Ship
+                                }
+                            ));
+                            if object_data.object.id == local_clients_data.get_by_client_id(transport.client_id()).object_id{
+                                commands.entity(e).insert(CameraFollow);
+                            }
+                            Some((e, object_data.object.id))
+                        } else {
+                            None
+                        }
+                    },
+                    ObjectType::PickUP{pickup_type} => {
+                        None
+                    }
+                };
+                if t.is_some(){
+                    let (e, id) = t.unwrap();
+                    existing_objects.insert(id, e);
+                    entities_to_keep.push(e);
+                }
+            }
+        }
+        for (_, e) in existing_objects.iter(){
+            if !entities_to_keep.contains(e){ 
+                commands.entity(*e).despawn_recursive();
+            }
+        }
+    }
+        
+    
+
     while let Some(message) = client.receive_message(ServerChannel::Garanteed) {
         let msg: Message = bincode::deserialize::<Message>(&message).unwrap();
         match msg {
             Message::OnConnect{clients_data, config, ship_object_id} => {
                 *local_clients_data = clients_data;
                 *cfg = config;
-                println!("spawned new ship!");
+                /*println!("spawned new ship!");
                 let player_data = local_clients_data.get_by_client_id(transport.client_id());
             
                 let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, player_data);
-                println!("<init> SPAWNED SHIP FOR {} WITH ID {}", player_data.client_id, player_data.object_id);
+                println!("<init> SPAWNED SHIP FOR {} WITH ID {} -> E {:?}", player_data.client_id, player_data.object_id, entity);
                 //commands.entity(*cached_entities.get(&0).unwrap()).insert(Object{id: ship_object_id, object_type: ObjectType::Ship});
                 commands.entity(entity).insert((
                     CameraFollow,
@@ -405,9 +387,8 @@ fn receive_message_system(
                         id: ship_object_id,
                         object_type: ObjectType::Ship
                     },
-                ));
+                ));*/
                 
-                cached_entities.insert(ship_object_id, entity);
 
                 for x in -1..(cfg.map_size_chunks.x as i32 + 1){ // include shadow chunks
                     for y in -1..(cfg.map_size_chunks.y as i32 + 1){
