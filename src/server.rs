@@ -333,20 +333,29 @@ fn receive_message_system(
                             // let it be...
                             let target_angle = transform.up().truncate().angle_between(inputs.rotation_target);
                             if !target_angle.is_nan(){
-                                velocity.angvel += (target_angle.clamp(-1., 1.) * 180. / PI - velocity.angvel) * 0.5;//.clamp(-1.5, 1.5);
+                                velocity.angvel += ((target_angle * 180. / PI - velocity.angvel) * 1.).clamp(-90., 90.);//.clamp(-1.5, 1.5);
                             }
                             velocity.linvel += target_direction;
                         }
                     }
                 }
                 msg_type => {
-                    warn!("Unhandled message with id {} recived on client!", u8::from(msg_type));
+                    warn!("Unhandled message recived on server!");
                 }
             }
            // println!("{}", String::from_utf8(message.to_vec()).unwrap());
         }
-        while let Some(_message) = server.receive_message(client_id, ClientChannel::Garanteed) {
+        while let Some(message) = server.receive_message(client_id, ClientChannel::Garanteed) {
             // println!("{}", String::from_utf8(message.to_vec()).unwrap());
+            let msg: Message = bincode::deserialize::<Message>(&message).unwrap();
+            match msg {
+                Message::RegisterClient { style, color, name } => {
+                    
+                }
+                msg_type => {
+                    warn!("Unhandled message recived on server!");
+                }
+            }
         }
     }
 }
@@ -392,8 +401,6 @@ fn handle_events_system(
                 let for_spawn_cl_data = ClientData::for_spawn(data[3], [data[0] as f32 / 255., data[1] as f32 / 255., data[2] as f32 / 255.], object_id);
                 let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &for_spawn_cl_data);
 
-
-
                 let new_client_data = ClientData { 
                     client_id: client_id.raw(),
                     object_id: object_id,
@@ -405,9 +412,6 @@ fn handle_events_system(
                 clients_data.add(new_client_data.clone());
                 println!("register new client with id {}", client_id);
 
-                
-                
-                
                 // SEND DATA TO CONNECTED PLAYER
                 let cfg_clone = cfg.clone();
                 cfg.debug_render = false;
@@ -418,9 +422,6 @@ fn handle_events_system(
                 };
                 let encoded: Vec<u8> = bincode::serialize(&msg).unwrap();
                 server.send_message(*client_id, ServerChannel::Garanteed, encoded);
-
-
-
 
                 // SEND CONNECTION MESSAGE TO ALL
                 let msg = Message::NewConnection {client_data: new_client_data};

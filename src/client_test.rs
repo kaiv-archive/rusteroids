@@ -25,10 +25,8 @@ use bevy_rapier2d::prelude::*;
 
 fn main(){
     let mut app = App::new();
-
     //let default_settings = settings::GameSettings::init();
     //app.insert_resource(default_settings);
-
     app.add_plugins((
         DefaultPlugins.set(
                 ImagePlugin::default_nearest(),
@@ -36,7 +34,6 @@ fn main(){
         WorldInspectorPlugin::new(),
         RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0),
         RapierDebugRenderPlugin{enabled: false, ..default()},
-
         //FrameTimeDiagnosticsPlugin,
         //LogDiagnosticsPlugin::default(),
     ));
@@ -46,14 +43,16 @@ fn main(){
         Startup,
         (
             setup,
-    ));
+        )
+    );
     app.add_systems(
         Update, 
-        
-        (handle_inputs,
-        update,
-        starfield_update,
-        camera_follow,).chain()
+        (
+            handle_inputs,
+            update,
+            starfield_update,
+            camera_follow,
+        ).chain()
     );
     app.insert_resource(GameSettings::default());
     app.insert_resource(InputKeys::default());
@@ -74,12 +73,8 @@ fn setup(
     mut cfg: ResMut<GlobalConfig>,
     mut window: Query<&mut Window>,
 ){
-
     window.single_mut().resolution.set(1280., 720.);
     
-
-
-
     let player_data = ClientData::for_spawn(0, [1.; 3], cfg.new_id());
     let e = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &player_data);
 
@@ -88,16 +83,7 @@ fn setup(
     while crate::game::get_asteroid_size(seed) != 3 {
         seed = rand::random();
     }
-    
-    
     //game::spawn_asteroid(seed, Velocity::zero(), Transform::from_translation(Vec3::splat(3.)), &mut meshes, &mut materials, &mut commands, cfg.new_id(), cfg.get_asteroid_hp(seed));
-
-    
-
-
-
-
-
     // spawn room
     let room_size = Vec2{x: 1600., y: 1200.,};
     let thickness = 10.;
@@ -185,7 +171,7 @@ fn handle_inputs(
     match *input_type{
         InputType::Keyboard => {
             inp.fixed_camera_z = false;
-            if keys.pressed(KeyCode::W){inp.up = true} //  || buttons.pressed(MouseButton::Right
+            if keys.pressed(KeyCode::W){inp.up = true} // || buttons.pressed(MouseButton::Right
             if keys.pressed(KeyCode::S){inp.down = true}
             if keys.pressed(KeyCode::A){inp.rotate_left = true}
             if keys.pressed(KeyCode::D){inp.rotate_right = true}
@@ -297,11 +283,10 @@ fn update(
     if !target_angle.is_nan(){
         velocity.angvel += (target_angle.clamp(-1., 1.) * 180. / PI - velocity.angvel) * 0.5;//.clamp(-1.5, 1.5);
     }
-    
-    //velocity.angvel += -k * velocity.angvel * (velocity.angvel / maxspeed) * ((inp.rotation_target * 180. / PI)/PI);
+    /*velocity.angvel += -k * velocity.angvel * (velocity.angvel / maxspeed) * ((inp.rotation_target * 180. / PI)/PI);
     //if velocity.angvel == 0.{velocity.angvel = 0.1};
     //velocity.angvel += -k * ();
-    /*let speed = 0.2;
+    let speed = 0.2;
     if (velocity.angvel > 0.) == (rotation_direction > 0.){
         if velocity.angvel.abs() * 0.1 > inp.rotation_target.abs().pow(2) { // id
             //break
@@ -315,11 +300,11 @@ fn update(
     } else {
         velocity.angvel += inp.rotation_target * speed * 2.;
         println!("break! dir");
-    }*/
-    //velocity.angvel += inp.rotation_target * speed;
+    }
+    velocity.angvel += inp.rotation_target * speed;
 
 
-    /*let rotate_speed: f32 = 5.;
+    let rotate_speed: f32 = 5.;
     let mut rotation_direction = 0.;
     if inp.rotate_left {
         rotation_direction += 1.;
@@ -338,15 +323,12 @@ fn update(
         println!("twice speed");
     }*/
     
-
     let mut target_direction = Vec2::ZERO;
     if inp.up    {target_direction.y += 1.5;} //  || buttons.pressed(MouseButton::Right
     if inp.down  {target_direction.y -= 0.75;}
     if inp.right {target_direction.x += 1.0;}
     if inp.left  {target_direction.x -= 1.0;}
     
-
-
     if inp.stabilize{
         velocity.linvel = velocity.linvel * 0.97;
         velocity.angvel = velocity.angvel * 0.97;
@@ -368,7 +350,6 @@ fn update(
         spawn_bullet(transform.up().truncate() * 1000. + velocity.linvel, &transform, cfg.new_id(), cfg.new_id(), 3000., &asset_server, &mut commands);
     }
     
-
     let max_linvel = 700.;
     if velocity.linvel.length_squared() > (max_linvel * max_linvel){
         velocity.linvel *= 0.8;
@@ -381,14 +362,15 @@ fn update(
 
 
 
-const STARFIELD_STARS : usize = 5000;
+const STARFIELD_STARS : usize = 1500;
 
 fn distance_distribution(x: f32) -> f32{
-    if x < 0.5{
+    x
+    /*if x < 0.5{
         0.1 + x / 5.
     } else{
         (1. - (1. - x.powi(10)).powi(2)) * 0.9 + 0.2
-    } 
+    } */
 }
 
 #[derive(Component)]
@@ -405,27 +387,22 @@ pub struct StarClass{
 }
 
 fn starfield_update(
-    mut resize_event: Res<Events<WindowResized>>,
+    resize_event: Res<Events<WindowResized>>,
     mut commands: Commands,
     mut star_q: Query<(&mut Transform, &mut Sprite, &Star, Entity), (With<Star>, Without<StarsLayer>, Without<Camera>, Without<CameraFollow>)>,
     mut star_layer_q: Query<(&mut Transform, Entity), (With<StarsLayer>, Without<Star>, Without<Camera>, Without<CameraFollow>)>,
     keys: Res<Input<KeyCode>>,
     player: Query<(&Transform, &Velocity), (With<CameraFollow>, Without<Star>, Without<Camera>)>,
-
     asset_server: Res<AssetServer>,
-
     mut camera:  Query<(&Camera, &mut GlobalTransform), (With<Camera>, With<PixelCamera>, Without<StarsLayer>, Without<Star>, Without<CameraFollow>)>,
     time: Res<Time>,
     mut max_dist: Local<f32>,
     mut max_dist_squared: Local<f32>
 ){
     if camera.is_empty(){return;}
-    
     let (camera, camera_global_transform) = camera.single_mut();
     let camera_global_transform = camera_global_transform.compute_transform();
     let padding = 10.;
-    
-    
     let mut reader = resize_event.get_reader();
     if reader.read(&resize_event).len() > 0 || *max_dist < 1. || keys.just_pressed(KeyCode::P){ // todo: fix bug with first frame; after using it in game it might fix itself.
         let window_size = camera.ndc_to_world(
@@ -436,35 +413,24 @@ fn starfield_update(
         *max_dist_squared = 2. * (max_size.powi(2));
         *max_dist = max_dist_squared.sqrt();
     }
-
-
-
-
     let (player_transform, player_velocity) = player.single();
-
     if star_layer_q.get_single().is_ok(){
         star_layer_q.single_mut().0.translation = player_transform.translation;
     }
-
     for star_data in star_q.iter_mut(){
         let (mut transform, mut sprite, star, e) = star_data;
-
         let camera_transfrom = camera_global_transform.translation.truncate();
         let star_transform =  transform.translation;
         //let right_up_corner = camera_transfrom + Vec2::splat(*max_dist);
         //let left_down_corner = camera_transfrom - Vec2::splat(*max_dist);
-        
         if star_transform.truncate().length_squared() < *max_dist_squared + padding{ // inside "keep" circle
             transform.translation += -player_velocity.linvel.extend(0.) * time.delta_seconds() * (0.1 + star.depth * 0.3);//
         } else {
-            if rand::random::<f32>() < 0.1{ // some random
+            if rand::random::<f32>() < 0.1 { // some random
                 commands.entity(e).remove_parent();
                 commands.entity(e).despawn();
-                
-                //sprite.color.set_a(rand::random::<f32>() * 0.5);
-
-
-                /*transform.translation = //camera_global_transform.translation + 
+                /*sprite.color.set_a(rand::random::<f32>() * 0.5);
+                transform.translation = //camera_global_transform.translation + 
                     Vec2::from_angle(
                         (player_velocity.linvel.normalize())
                             .angle_between(Vec2::X) * -1. + PI * rand::random::<f32>() - PI / 2.
@@ -473,35 +439,23 @@ fn starfield_update(
                 transform.rotation = Quat::from_axis_angle(Vec3::Z, PI * 2. * rand::random::<f32>());*/
             }
         }
-
-
-
-        
         //let (mut star_transform, _, _) = star_q.get_mut(Entity::from_bits(*star)).unwrap();
-            
-        
     }
     let curr_stars_count = star_q.into_iter().len();
-    
-
-
-    
-
+    let mut rng = rand::thread_rng();
     let texture_path = [
         "star1.png",
         "star2.png",
         "star3.png",
         "star4.png",
         "star5.png",
-        ]; 
-    let mut rng = rand::thread_rng();
-
-    let weak = 2.;
-    let medium = 3.;
+    ];
+    let weak = 1.5;
+    let medium = 2.;
     let bright = 5.;
-    let insane = 10.;
+    let insane = 5.;
     let star_classes = [
-        StarClass{// sapphire
+        StarClass{ // sapphire
             size: (1., 1.),
             chance: 0.1,
             color: Color::Rgba { red: 0.1, green: 0.15, blue: 1., alpha: 1. } * insane,
@@ -532,35 +486,29 @@ fn starfield_update(
             chance: 10.,
             color: Color::Rgba { red: 1., green: 1., blue: 1., alpha: 1. } * weak,
         },
-        StarClass{  // medium white
+        StarClass{ // medium white
             size: (1., 1.),
             chance: 100.,
             color: Color::Rgba { red: 1., green: 1., blue: 1., alpha: 1. } * medium, 
         },
-        StarClass{  // bright white
-            size: (1., 1.),
-            chance: 10.,
-            color: Color::Rgba { red: 1., green: 1., blue: 1., alpha: 1. } * bright, 
-        },
         StarClass{ // light purple
             size: (1., 1.),
-            chance: 10.,
+            chance: 30.,
             color: Color::Rgba { red: 0.9, green: 0.8, blue: 1., alpha: 1. } * medium,
         },
-        StarClass{ //light blue
+        StarClass{ // light blue
             size: (1., 1.),
-            chance: 20.,
-            color: Color::Rgba { red: 0.60, green: 0.67, blue: 0.98, alpha: 1. } * medium, 
+            chance: 200.,
+            color: Color::Rgba { red: 0.60, green: 0.67, blue: 0.98, alpha: 1. } * weak, 
         },
-        
         StarClass{ // red
-            size: (0.3, 0.5),
+            size: (0.5, 0.7),
             chance: 8.,
             color: Color::Rgba { red: 0.5, green: 0.2, blue: 0.2, alpha: 1. } * weak,
         },
         StarClass{ // orange
             size: (1., 1.),
-            chance: 13.,
+            chance: 23.,
             color: Color::Rgba { red: 1., green: 0.8, blue: 0.5, alpha: 1. } * medium,
         },
         StarClass{ // yellow
@@ -569,8 +517,6 @@ fn starfield_update(
             color: Color::Rgba { red: 1., green: 1., blue: 0.2, alpha: 1. } * medium,
         },
     ];
-
-
     /*let main_colors = [
         Color::Rgba {alpha: 1., red: 2., green: 2., blue: 2. },
         Color::Rgba {alpha: 1., red: 1.3, green: 1.1, blue: 0.7 },
@@ -605,34 +551,43 @@ fn starfield_update(
         };
         
         let diff = STARFIELD_STARS - curr_stars_count;
-        if curr_stars_count == 0{ // init spawn
-            for _ in 0..diff{
-                let depth = distance_distribution(rand::random());
-                
-                let class_id = class_table.next();
-                let class = (star_classes).get(class_id).unwrap();
-                let color = class.color;
-                let size_properties = class.size;
-                let size = size_properties.0 + rand::random::<f32>() * (size_properties.1 - size_properties.0);
+        let init_spawn = curr_stars_count == 0;
+        for _ in 0..diff{
+            let depth = distance_distribution(rand::random());
+            
+            let class_id = class_table.next();
+            let class = (star_classes).get(class_id).unwrap();
+            let color = class.color;
+            let size_properties = class.size;
+            let size = size_properties.0 + rand::random::<f32>() * (size_properties.1 - size_properties.0);
 
-                let mut new_pos = Vec3::ZERO;
+            let mut new_pos = Vec3::ZERO;
+            if init_spawn {
                 new_pos.x += 2. * *max_dist * rand::random::<f32>() - *max_dist;
                 new_pos.y += 2. * *max_dist * rand::random::<f32>() - *max_dist;
-                
-                commands.spawn((
-                    SpriteBundle {
-                        transform: Transform::from_translation((new_pos) - Vec3::Z )
-                            .with_rotation(Quat::from_axis_angle(Vec3::Z, PI / 2. * rand::random::<f32>()))
-                            .with_scale(Vec3::splat(0.15 + depth * size * 0.45)),//0.11 + depth * size * 0.8
-                            // 0.2 -> 0.65
-                        texture: asset_server.load(texture_path[rng.gen_range(0..texture_path.len())]),
-                        sprite: Sprite { color: color.with_a(depth * 0.35), ..default() }, // ADD RANDOM COLORS
-                        ..default()
-                    },
-                    Star{depth: depth},
-                    Name::new("Star")
-                )).set_parent(layer);
+            } else {
+                new_pos = Vec2::from_angle(
+                    (player_velocity.linvel.normalize())
+                        .angle_between(Vec2::X) * -1. + PI * rand::random::<f32>() - PI / 2.
+                ).extend(0.) * *max_dist;
             }
+            
+            commands.spawn((
+                SpriteBundle {
+                    transform: Transform::from_translation((new_pos) - Vec3::Z )
+                        .with_rotation(Quat::from_axis_angle(Vec3::Z, PI / 2. * rand::random::<f32>()))
+                        .with_scale(Vec3::splat(0.15 + depth * size * 0.45)),//0.11 + depth * size * 0.8
+                        // 0.2 -> 0.65
+                    texture: asset_server.load(texture_path[rng.gen_range(0..texture_path.len())]),
+                    sprite: Sprite { color: color.with_a(depth * 0.35), ..default() }, // ADD RANDOM COLORS
+                    ..default()
+                },
+                Star{depth: depth},
+                Name::new("Star")
+            )).set_parent(layer);
+        }
+        /*if curr_stars_count == 0{ // init spawn
+            
         } else { // respawn
             for _ in 0..diff{
                 let depth = distance_distribution(rand::random());
@@ -661,12 +616,11 @@ fn starfield_update(
                     Name::new("Star")
                 )).set_parent(layer);
             }
-        }
+        }*/
     }
     if keys.just_pressed(KeyCode::P){
         commands.entity(star_layer_q.single().1).despawn_recursive();
     }
-
     /*
     if *star != 0{
         
@@ -685,6 +639,5 @@ fn starfield_update(
         )).id();
         *star = id.to_bits();
     }
-    */
-    
+    */  
 }

@@ -1,5 +1,5 @@
 use std::{collections::HashMap, time::Duration};
-use bevy::prelude::{Component, Resource, Event, Vec2, Vec3, Transform, Entity, Quat};
+use bevy::{prelude::{Component, Resource, Event, Vec2, Vec3, Transform, Entity, Quat}, render::color::Color};
 use bevy_rapier2d::prelude::Velocity;
 use bevy_renet::renet::{ChannelConfig, SendType, ConnectionConfig};
 use rand::{SeedableRng, Rng};
@@ -9,30 +9,38 @@ use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize)]
 pub enum Message{
-    OnConnect{
+    Greeteng{
+
+    },
+    RegisterClient{
+        style: u8,
+        color: Color,
+        name: String
+    },
+    OnConnect{ // MAP AND CLIENT DATA
         clients_data: ClientsData,
         ship_object_id: u64,
         config: GlobalConfig
-    }, // MAP AND CLIENT DATA
-    Update{
+    }, 
+    Update{ // DATA ABOUT CHUNKS AROUND
         data: Vec<ObjectData>
-    }, // DATA ABOUT CHUNKS AROUND
-    Inputs{
+    }, 
+    Inputs{ // CLIENT INPUTS
         inputs: InputKeys,
-    }, // CLIENT INPUTS
-    ChatMessage{
+    }, 
+    ChatMessage{ // SENDER, MESSAGE
         sender_id: u64,
         message: String,
-    }, // SENDER, MESSAGE
-    NewConnection{
+    }, 
+    NewConnection{ // CLIENT DATA
         client_data: ClientData
-    }, // CLIENT DATA
-    NewDisconnection{
+    }, 
+    NewDisconnection{ // CLIENT ID
         id: u64
-    }, // CLIENT ID
-    Kick{
+    }, 
+    Kick{ // REASON
         reason: String
-    }, // REASON
+    }, 
     ERR,
 }
 
@@ -46,21 +54,6 @@ pub struct ObjectData{
     pub rotation: Quat,
 }
 
-
-impl From<Message> for u8 {
-    fn from(channel_id: Message) -> Self {
-        match channel_id {
-            Message::OnConnect{clients_data: _, config: _, ship_object_id: _ } => {0},
-            Message::Update{data: _} => {1},
-            Message::Inputs {inputs: _} => {2},
-            Message::ChatMessage{sender_id: _,message: _,} => {3},
-            Message::NewConnection{client_data: _} => {4},
-            Message::NewDisconnection{id: _} => {5},
-            Message::Kick{reason: _} => {6},
-            Message::ERR => {7},
-        }
-    }
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct MyData{
@@ -315,7 +308,10 @@ pub enum ObjectType{ // todo: ASTEROID SEED, BULLET OWNER(FOR COLOR), SHIP STYLE
 #[derive(Component)]
 pub struct ShipPreview;
 
-pub enum ClientChannel {
+
+
+// ids and properties of fast and garanteed same for both client and server are the same. maybe use just one enum Channel?
+pub enum ClientChannel { 
     Fast,
     Garanteed,
 }

@@ -67,7 +67,7 @@ impl Default for GameSettings {
             beams_coloroffset_g: 0.1, // ADD IMPLEMENTATION!!
             beams_coloroffset_b: 0.1, // ADD IMPLEMENTATION!!
             beams_color: Color::WHITE, // ADD IMPLEMENTATION!!
-            // GRAPHICS SETTINGS 
+            // GRAPHICS VFX SETTINGS 
             bloom_intensity: 0.1, 
             deband_dither: DebandDither::Enabled,
             tonemapping: Tonemapping::TonyMcMapface,
@@ -88,7 +88,7 @@ impl Default for GameSettings {
     }
 }
 
-#[allow(dead_code)]
+
 impl GameSettings{
     pub fn get_font_path(&self) -> String{
         self.font_path.clone()

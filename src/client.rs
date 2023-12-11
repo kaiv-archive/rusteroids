@@ -1,10 +1,11 @@
 use std::{net::UdpSocket, time::SystemTime, f32::consts::PI};
 
-use bevy::{prelude::*, DefaultPlugins, utils::HashMap, transform::commands};
+use bevy::{prelude::*, DefaultPlugins, utils::HashMap, transform::commands, window::WindowResized};
 
 use bevy_inspector_egui::{quick::WorldInspectorPlugin, bevy_egui::EguiPlugin};
 use bevy_rapier2d::prelude::Velocity;
 use bevy_renet::{renet::{*, transport::*}, transport::NetcodeClientPlugin, RenetClientPlugin};
+use rand::Rng;
 use renet_visualizer::RenetServerVisualizer;
 
 #[path = "client_menu.rs"] mod client_menu;
@@ -12,6 +13,7 @@ use client_menu::*;
 #[path = "game.rs"] mod game;
 use game::*;
 use game::components::*;
+use weighted_rand::builder::*;
 
 //InintClient
 
@@ -89,7 +91,7 @@ fn main(){
             
 
 
-            (receive_message_system, snap_objects, update_chunks_around, camera_follow).chain(),
+            (receive_message_system, snap_objects, update_chunks_around, starfield_update, camera_follow).chain(),
             handle_inputs_system,
             
     ).run_if(in_state(ClientState::InGame)));
@@ -117,6 +119,7 @@ fn despawn_game_components(
     objects_q: Query<Entity, With<Object>>,
     debug_chuncs_q: Query<Entity, With<Chunk>>,
     mut clients_data: ResMut<ClientsData>,
+    mut star_layer_q: Query<Entity, With<StarsLayer>>,
 ){
     for e in objects_q.iter(){
         commands.entity(e).despawn();
@@ -124,6 +127,7 @@ fn despawn_game_components(
     for e in debug_chuncs_q.iter(){
         commands.entity(e).despawn();
     }
+    commands.entity(star_layer_q.single()).despawn_recursive();
     clients_data.clean_exclude_me();
 }
 
@@ -139,27 +143,14 @@ fn init_client(
     mut clients_data: ResMut<ClientsData>,
 ){  
     for e in reader.read(){
-        let mut data: Vec<u8> = vec![];
-
         // COLOR
-        let color = settings.color;
-        data.push((color[0] * 255.) as u8);
-        data.push((color[1] * 255.) as u8);
-        data.push((color[2] * 255.) as u8);
-
+        //let color = settings.color;
+        
         // STYLE
-        data.push(e.style);
+        //e.style;
 
 
-        let name = settings.name.as_bytes();
-        for char in name.iter(){
-            data.push(*char)
-        }
-
-        let mut new_data: [u8; 256] = [0; 256];
-        for i in 0..data.len(){
-            new_data[i] = data[i];
-        }
+        //let name = settings.name;
 
         println!("ADRESS IS {}", connect_properties.adress);
         let server_addr = connect_properties.adress.parse().unwrap();
@@ -175,16 +166,15 @@ fn init_client(
                 protocol_id: GAME_PROTOCOL_ID,
                 client_id: current_time.as_millis() as u64,
                 server_addr: server_addr,
-                user_data: Some(new_data)
+                user_data: None
             }, 
             socket
         ).unwrap();
-
+        commands.insert_resource(RenetClient::new(connection_config()));
+        commands.insert_resource(transport);
         
         
-        let for_spawn_cl_data = ClientData::for_spawn(e.style, color, 0);
-
-        
+        //let for_spawn_cl_data = ClientData::for_spawn(e.style, color, 0);
         /*let client_data = ClientData {
             client_id: 0,
             object_id: 1,
@@ -193,16 +183,8 @@ fn init_client(
             color: color,
             name: "SELF".into()
         };*/
-
         //clients_data.add(client_data);
-
-
         //let player_data = clients_data.get_by_client_id(0);
-        
-
-
-        commands.insert_resource(RenetClient::new(connection_config()));
-        commands.insert_resource(transport);
     }
 }
 
@@ -254,18 +236,10 @@ fn handle_inputs_system(
             .and_then(|cursor| camera.viewport_to_world(camera_transform, cursor))
             .map(|ray| ray.origin.truncate())
         {
-            let target_vector = world_position;// - Vec2{x: transform.translation.x, y: transform.translation.y}; 
             inp.rotation_target = world_position;
-            /*let pos = Vec2{x: transform.up().x, y: transform.up().y};
-            let target_angle = target_vector.angle_between(pos);
-            if !target_angle.is_nan(){
-                inp.rotation_target = -target_angle;
-            }*/
         }
     }
     
-
-    println!("{}", inp.rotation_target);
     send_message(&mut renet_client, ClientChannel::Fast, Message::Inputs { inputs: inp });
 
     //println!("{:?}", (up, down, right, left));
@@ -293,6 +267,7 @@ fn receive_message_system(
     mut next_state: ResMut<NextState<ClientState>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    settings: Res<GameSettings>,
     transport: Res<NetcodeClientTransport>,
     mut local_clients_data: ResMut<ClientsData>,
     mut commands: Commands,
@@ -356,7 +331,6 @@ fn receive_message_system(
                                             id: object_data.object.id,
                                             object_type: ObjectType::Ship
                                         }
-                                        
                                     ));
                                 }
                             }
@@ -365,7 +339,7 @@ fn receive_message_system(
                 }
             }
             msg_type => {
-                warn!("Unhandled message with id {} recived on client!", u8::from(msg_type));
+                warn!("Unhandled message recived on client!");
             }
         }
         
@@ -376,7 +350,9 @@ fn receive_message_system(
             Message::OnConnect{clients_data, config, ship_object_id} => {
                 *local_clients_data = clients_data;
                 *cfg = config;
+                println!("spawned new ship!");
                 let player_data = local_clients_data.get_by_client_id(transport.client_id());
+            
                 let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, player_data);
 
                 //commands.entity(*cached_entities.get(&0).unwrap()).insert(Object{id: ship_object_id, object_type: ObjectType::Ship});
@@ -397,8 +373,19 @@ fn receive_message_system(
             Message::NewConnection { client_data } => {
                 local_clients_data.add(client_data)
             }
-            msg_type => {
-                warn!("Unhandled message with id {} recived on client!", u8::from(msg_type));
+            Message::Greeteng {  } => {
+                send_message(
+                    &mut client, 
+                    ClientChannel::Garanteed, 
+                    Message::RegisterClient {
+                        style: settings.style,
+                        color: Color::from(settings.color),
+                        name: settings.name.clone() as String
+                    }
+                );
+            },
+            _msg_type => {
+                warn!("Unhandled message recived on client!");
             }
         }
     }
@@ -406,3 +393,217 @@ fn receive_message_system(
 // println!("{}", String::from_utf8(message.to_vec()).unwrap());
 // Send a text message to the server
 //client.send_message(DefaultChannel::ReliableOrdered, "HI FROM CLIENT!".as_bytes().to_vec());
+
+
+const STARFIELD_STARS : usize = 5000;
+
+fn distance_distribution(x: f32) -> f32{
+    if x < 0.5{
+        0.1 + x / 5.
+    } else{
+        (1. - (1. - x.powi(10)).powi(2)) * 0.9 + 0.2
+    } 
+}
+
+#[derive(Component)]
+struct Star{depth: f32}
+
+#[derive(Component)]
+struct StarsLayer;
+
+#[derive(Clone, Copy)]
+pub struct StarClass{
+    size: (f32, f32),
+    chance: f32,
+    color: Color,
+}
+
+fn starfield_update(
+    resize_event: Res<Events<WindowResized>>,
+    mut commands: Commands,
+    mut star_q: Query<(&mut Transform, &mut Sprite, &Star, Entity), (With<Star>, Without<StarsLayer>, Without<Camera>, Without<CameraFollow>)>,
+    mut star_layer_q: Query<(&mut Transform, Entity), (With<StarsLayer>, Without<Star>, Without<Camera>, Without<CameraFollow>)>,
+    keys: Res<Input<KeyCode>>,
+    player: Query<(&Transform, &Velocity), (With<CameraFollow>, Without<Star>, Without<Camera>)>,
+    asset_server: Res<AssetServer>,
+    mut camera:  Query<(&Camera, &mut GlobalTransform), (With<Camera>, With<PixelCamera>, Without<StarsLayer>, Without<Star>, Without<CameraFollow>)>,
+    time: Res<Time>,
+    mut max_dist: Local<f32>,
+    mut max_dist_squared: Local<f32>
+){
+    if camera.is_empty(){return;}
+    let (camera, camera_global_transform) = camera.single_mut();
+    let camera_global_transform = camera_global_transform.compute_transform();
+    let padding = 10.;
+    let mut reader = resize_event.get_reader();
+    if reader.read(&resize_event).len() > 0 || *max_dist < 1. || keys.just_pressed(KeyCode::P){ // todo: fix bug with first frame; after using it in game it might fix itself.
+        let window_size = camera.ndc_to_world(
+            &GlobalTransform::from(camera_global_transform.with_rotation(Quat::from_axis_angle(Vec3::Z, 0.)).with_translation(Vec3::ZERO)),
+            Vec3::ONE
+        ).unwrap();
+        let max_size = window_size.x.round().max(window_size.y.round());
+        *max_dist_squared = 2. * (max_size.powi(2));
+        *max_dist = max_dist_squared.sqrt();
+    }
+    let (player_transform, player_velocity) = player.single();
+    if star_layer_q.get_single().is_ok(){
+        star_layer_q.single_mut().0.translation = player_transform.translation;
+    }
+    for star_data in star_q.iter_mut(){
+        let (mut transform, mut sprite, star, e) = star_data;
+        let camera_transfrom = camera_global_transform.translation.truncate();
+        let star_transform =  transform.translation;
+        //let right_up_corner = camera_transfrom + Vec2::splat(*max_dist);
+        //let left_down_corner = camera_transfrom - Vec2::splat(*max_dist);
+        if star_transform.truncate().length_squared() < *max_dist_squared + padding{ // inside "keep" circle
+            transform.translation += -player_velocity.linvel.extend(0.) * time.delta_seconds() * (0.1 + star.depth * 0.3);//
+        } else {
+            if rand::random::<f32>() < 0.1 { // some random
+                commands.entity(e).remove_parent();
+                commands.entity(e).despawn();
+                /*sprite.color.set_a(rand::random::<f32>() * 0.5);
+                transform.translation = //camera_global_transform.translation + 
+                    Vec2::from_angle(
+                        (player_velocity.linvel.normalize())
+                            .angle_between(Vec2::X) * -1. + PI * rand::random::<f32>() - PI / 2.
+                    ).extend(0.) * *max_dist;
+
+                transform.rotation = Quat::from_axis_angle(Vec3::Z, PI * 2. * rand::random::<f32>());*/
+            }
+        }
+        //let (mut star_transform, _, _) = star_q.get_mut(Entity::from_bits(*star)).unwrap();
+    }
+    let curr_stars_count = star_q.into_iter().len();
+    let mut rng = rand::thread_rng();
+    let texture_path = [
+        "star1.png",
+        "star2.png",
+        "star3.png",
+        "star4.png",
+        "star5.png",
+    ];
+    let weak = 1.5;
+    let medium = 2.;
+    let bright = 5.;
+    let insane = 5.;
+    let star_classes = [
+        StarClass{ // sapphire
+            size: (1., 1.),
+            chance: 0.1,
+            color: Color::Rgba { red: 0.1, green: 0.15, blue: 1., alpha: 1. } * insane,
+        },
+        StarClass{ // amethyst
+            size: (1., 1.),
+            chance: 0.1,
+            color: Color::Rgba { red: 1., green: 0.0, blue: 0.8, alpha: 1. } * insane,
+        },
+        StarClass{ // ruby
+            size: (1., 1.),
+            chance: 0.1,
+            color: Color::Rgba { red: 1., green: 0.0, blue: 0.45, alpha: 1. } * insane,
+        },
+        StarClass{ // emerald
+            size: (1., 1.),
+            chance: 0.1,
+            color: Color::Rgba { red: 0.2, green: 1., blue: 0.4, alpha: 1. } * insane,
+        },
+        StarClass{ // golden
+            size: (1., 1.),
+            chance: 0.1,
+            color: Color::Rgba { red: 1., green: 0.8, blue: 0.2, alpha: 1. } * insane,
+        },
+
+        StarClass{ // weak white
+            size: (1., 1.),
+            chance: 10.,
+            color: Color::Rgba { red: 1., green: 1., blue: 1., alpha: 1. } * weak,
+        },
+        StarClass{ // medium white
+            size: (1., 1.),
+            chance: 100.,
+            color: Color::Rgba { red: 1., green: 1., blue: 1., alpha: 1. } * medium, 
+        },
+        StarClass{ // light purple
+            size: (1., 1.),
+            chance: 30.,
+            color: Color::Rgba { red: 0.9, green: 0.8, blue: 1., alpha: 1. } * medium,
+        },
+        StarClass{ // light blue
+            size: (1., 1.),
+            chance: 200.,
+            color: Color::Rgba { red: 0.60, green: 0.67, blue: 0.98, alpha: 1. } * weak, 
+        },
+        StarClass{ // red
+            size: (0.5, 0.7),
+            chance: 8.,
+            color: Color::Rgba { red: 0.5, green: 0.2, blue: 0.2, alpha: 1. } * weak,
+        },
+        StarClass{ // orange
+            size: (1., 1.),
+            chance: 23.,
+            color: Color::Rgba { red: 1., green: 0.8, blue: 0.5, alpha: 1. } * medium,
+        },
+        StarClass{ // yellow
+            size: (1., 1.),
+            chance: 15.,
+            color: Color::Rgba { red: 1., green: 1., blue: 0.2, alpha: 1. } * medium,
+        },
+    ];
+    let weights = &star_classes.map(|c| c.chance);
+    let builder = WalkerTableBuilder::new(weights);
+    let class_table = builder.build();
+
+    if curr_stars_count < STARFIELD_STARS{ // todo: move to init and add varables to settings
+        let layer = star_layer_q.get_single();
+        let layer = if layer.is_ok(){
+            layer.unwrap().1
+        } else {
+            commands.spawn((
+                StarsLayer,
+                TransformBundle::default(),
+                VisibilityBundle::default(),
+                Name::new("Stars Layer")
+            )).id()
+        };
+        
+        let diff = STARFIELD_STARS - curr_stars_count;
+        let init_spawn = curr_stars_count == 0;
+        for _ in 0..diff{
+            let depth = distance_distribution(rand::random());
+            
+            let class_id = class_table.next();
+            let class = (star_classes).get(class_id).unwrap();
+            let color = class.color;
+            let size_properties = class.size;
+            let size = size_properties.0 + rand::random::<f32>() * (size_properties.1 - size_properties.0);
+
+            let mut new_pos = Vec3::ZERO;
+            if init_spawn {
+                new_pos.x += 2. * *max_dist * rand::random::<f32>() - *max_dist;
+                new_pos.y += 2. * *max_dist * rand::random::<f32>() - *max_dist;
+            } else {
+                new_pos = Vec2::from_angle(
+                    (player_velocity.linvel.normalize())
+                        .angle_between(Vec2::X) * -1. + PI * rand::random::<f32>() - PI / 2.
+                ).extend(0.) * *max_dist;
+            }
+            
+            commands.spawn((
+                SpriteBundle {
+                    transform: Transform::from_translation((new_pos) - Vec3::Z )
+                        .with_rotation(Quat::from_axis_angle(Vec3::Z, PI / 2. * rand::random::<f32>()))
+                        .with_scale(Vec3::splat(0.15 + depth * size * 0.45)),//0.11 + depth * size * 0.8
+                        // 0.2 -> 0.65
+                    texture: asset_server.load(texture_path[rng.gen_range(0..texture_path.len())]),
+                    sprite: Sprite { color: color.with_a(depth * 0.35), ..default() }, // ADD RANDOM COLORS
+                    ..default()
+                },
+                Star{depth: depth},
+                Name::new("Star")
+            )).set_parent(layer);
+        }
+    }
+    if keys.just_pressed(KeyCode::P){
+        commands.entity(star_layer_q.single().1).despawn_recursive();
+    }
+}
