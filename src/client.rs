@@ -325,6 +325,15 @@ fn receive_message_system(
                         Some((e, object_data.object.id))
                     },
                     ObjectType::Bullet => {
+                        /*let e = spawn_bullet(
+                            target_velocity,
+                            transform, 
+                            object_id, 
+                            owner, 
+                            spawn_time, 
+                            asset_server, 
+                            &mut commands
+                        );*/
                         None
                     },
                     ObjectType::Ship => {
@@ -449,7 +458,7 @@ pub struct StarClass{
 
 
 // todo: add shooting stars
-// todo: add some values to settings!
+// todo: add many values to settings!
 // todo: add handle of screen resize
 fn starfield_update(
     resize_event: Res<Events<WindowResized>>,

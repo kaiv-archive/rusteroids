@@ -181,8 +181,8 @@ pub fn egui_based_menu(
     
 
     let mut fonts = egui::FontDefinitions::default();
-        fonts.font_data.insert("MinecraftRegular".to_owned(),
-        //egui::FontData::from_static(include_bytes!("../assets/fonts/F77MinecraftRegular-0VYv.ttf") )
+        fonts.font_data.insert("Font".to_owned(),
+        //egui::FontData::from_static(include_bytes!("../assets/fonts/F77Font-0VYv.ttf") )
         //egui::FontData::from_static(include_bytes!("../assets/fonts/TerminusTTF-4.49.3.ttf") )
         //egui::FontData::from_static(include_bytes!("../assets/fonts/unifont-15.1.04.otf") )
         //egui::FontData::from_static(include_bytes!("../assets/fonts/VCR OSD Mono Cyr.ttf") )
@@ -195,11 +195,11 @@ pub fn egui_based_menu(
         
     );
     
-    fonts.families.insert(egui::FontFamily::Name("MinecraftRegular".into()), vec!["MinecraftRegular".to_owned()]);
+    fonts.families.insert(egui::FontFamily::Name("Font".into()), vec!["Font".to_owned()]);
     fonts.families.get_mut(&egui::FontFamily::Proportional).unwrap()
-        .insert(0, "MinecraftRegular".to_owned());
+        .insert(0, "Font".to_owned());
     fonts.families.get_mut(&egui::FontFamily::Monospace).unwrap()
-        .insert(0, "MinecraftRegular".to_owned());
+        .insert(0, "Font".to_owned());
 
     ctx.set_fonts(fonts);
 

@@ -74,8 +74,6 @@ fn main(){
     app.add_systems(Update, (
         debug_chunk_render,
         resize_server_camera,
-
-        
         (snap_objects, update_chunks_around).chain(),
         // multiplayer connection systems
         send_message_system,
@@ -100,15 +98,15 @@ fn menu(
 ){
     let ctx = egui_context.ctx_mut();
     let mut fonts = egui::FontDefinitions::default();
-        fonts.font_data.insert("MinecraftRegular".to_owned(),
-        egui::FontData::from_static(include_bytes!("../assets/fonts/F77MinecraftRegular-0VYv.ttf") )
+        fonts.font_data.insert("Font".to_owned(),
+        egui::FontData::from_static(include_bytes!("../assets/fonts/VecTerminus12Medium.otf") )
     );
     
-    fonts.families.insert(egui::FontFamily::Name("MinecraftRegular".into()), vec!["MinecraftRegular".to_owned()]);
+    fonts.families.insert(egui::FontFamily::Name("Font".into()), vec!["Font".to_owned()]);
     fonts.families.get_mut(&egui::FontFamily::Proportional).unwrap()
-            .insert(0, "MinecraftRegular".to_owned());
+            .insert(0, "Font".to_owned());
     fonts.families.get_mut(&egui::FontFamily::Monospace).unwrap()
-        .insert(0, "MinecraftRegular".to_owned());
+        .insert(0, "Font".to_owned());
 
     ctx.set_fonts(fonts);
 
@@ -347,6 +345,18 @@ fn send_message_system(
 }
 
 
+struct ServerSideVarables{
+    shooting_cds: HashMap<u64, f32>, // client_id -> latest shoot time
+}
+
+impl Default for ServerSideVarables{
+    fn default() -> Self {
+        ServerSideVarables{
+            shooting_cds: HashMap::new()
+        }
+    }
+}
+
 fn receive_message_system(
     mut server: ResMut<RenetServer>,
     mut clients_data: ResMut<ClientsData>,
@@ -355,7 +365,10 @@ fn receive_message_system(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     transport: Res<NetcodeServerTransport>,
-    mut ships_q: Query<(&mut Velocity, &Transform), (With<Ship>, Without<Puppet>)>
+    mut server_side_varables: Local<ServerSideVarables>,
+    mut ships_q: Query<(&mut Velocity, &Transform), (With<Ship>, Without<Puppet>)>,
+    time: Res<Time>,
+    asset_server: Res<AssetServer>,
 ) {
      // Send a text message for all clients
     for client_id in server.clients_id().into_iter() {
@@ -370,7 +383,8 @@ fn receive_message_system(
 
                         if res.is_ok(){
                             let (mut velocity, transform) = res.unwrap();
-          
+
+                            // MOVES
                             let mut target_direction = Vec2::ZERO;
                             if inputs.up    {target_direction.y += 1.5;} //  || buttons.pressed(MouseButton::Right
                             if inputs.down  {target_direction.y -= 0.75;}
@@ -383,6 +397,39 @@ fn receive_message_system(
                                 velocity.angvel += ((target_angle * 180. / PI - velocity.angvel) * 1.).clamp(-90., 90.);//.clamp(-1.5, 1.5);
                             }
                             velocity.linvel += target_direction;
+
+                            // SHOOTING
+                            if inputs.shoot{
+                                let exist = server_side_varables.shooting_cds.contains_key(&client_id.raw());
+                                let current_time = time.elapsed().as_secs_f32();
+                                if exist {
+                                    let last_time = server_side_varables.shooting_cds.get(&client_id.raw()).unwrap().clone();
+                                    if time.elapsed().as_secs_f32() - last_time > cfg.shoot_cd_secs{
+                                        spawn_bullet(
+                                            velocity.linvel + transform.up().truncate() * 1000., 
+                                            transform, 
+                                            cfg.new_id(), 
+                                            client_data.object_id, 
+                                            current_time, 
+                                            &asset_server, 
+                                            &mut commands
+                                        );
+                                        
+                                        server_side_varables.shooting_cds.insert(client_id.raw(), current_time);
+                                    }
+                                } else {
+                                    spawn_bullet(
+                                        velocity.linvel + transform.up().truncate() * 1000., 
+                                        transform, 
+                                        cfg.new_id(), 
+                                        client_data.object_id, 
+                                        current_time, 
+                                        &asset_server, 
+                                        &mut commands
+                                    );
+                                    server_side_varables.shooting_cds.insert(client_id.raw(), current_time);
+                                }
+                            }
                         }
                     }
                 }
@@ -418,7 +465,8 @@ fn receive_message_system(
                     println!("register new client with id {}", client_id);
 
                     // SEND DATA TO CONNECTED PLAYER
-                    let cfg_clone = cfg.clone();
+                    let mut cfg_clone = cfg.clone();
+                    cfg_clone.debug_render = false;
                     cfg.debug_render = false;
                     let msg = Message::OnConnect{
                         clients_data: clients_data.clone(),
