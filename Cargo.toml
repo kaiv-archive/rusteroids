@@ -17,7 +17,7 @@ opt-level = 3
 
 
 [dependencies]
-bevy = { version = "0.12", features = ["dynamic_linking", "bevy_dynamic_plugin", "multi-threaded"]}
+bevy = { version = "0.12.1", features = ["dynamic_linking", "bevy_dynamic_plugin", "multi-threaded", "serialize"]}
 bevy_rapier2d = { version = "0.23.0", features = [ "debug-render-2d", "parallel" ] }
 
 bevy_egui = "0.23.0"
@@ -52,10 +52,14 @@ path = "src/client.rs"
 
 [[bin]]
 name = "test"
-path = "src/t.rs"
+path = "src/test.rs"
 
 [[bin]]
 name = "test1"
+path = "src/test1.rs"
+
+[[bin]]
+name = "test2"
 path = "src/t2.rs"
 
 [[bin]]

@@ -51,6 +51,7 @@ pub fn update_preview_ship(
     mut ship_preview: Query<(Entity, &mut Transform), With<ShipPreview>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    mut cfg: ResMut<GlobalConfig>,
     clients_data: Res<ClientsData>
 ){
     let clientdata = clients_data.get_by_client_id(0);
@@ -61,7 +62,7 @@ pub fn update_preview_ship(
             if clientdata.style != *prev_style || clientdata.color != *prev_color{
                 commands.entity(e).despawn_recursive();
                 let player_data = clients_data.get_by_client_id(0);
-                let e = spawn_ship(true, &mut meshes, &mut materials, &mut commands, player_data);
+                let e = spawn_ship(true, &mut meshes, &mut materials, &mut commands, player_data, &mut cfg);
                 commands.entity(e).insert((ShipPreview, RenderLayers::layer(GameRenderLayers::PreviewCamera as u8)));
                 *prev_style = clientdata.style;
                 *prev_color = clientdata.color;
@@ -81,6 +82,7 @@ pub fn setup_preview_camera(
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    mut cfg: ResMut<GlobalConfig>,
     mut clients_data: ResMut<ClientsData>
 ){
     clients_data.add(ClientData{
@@ -148,7 +150,7 @@ pub fn setup_preview_camera(
         Name::new("ShipPreviewCamera")
     )).insert(preview_pass_layer);
     let player_data = clients_data.get_by_client_id(0);
-    let e = spawn_ship(true, &mut meshes, &mut materials, &mut commands, player_data);
+    let e = spawn_ship(true, &mut meshes, &mut materials, &mut commands, player_data, &mut cfg);
     commands.entity(e).insert((ShipPreview, RenderLayers::layer(GameRenderLayers::PreviewCamera as u8)));
 }
 

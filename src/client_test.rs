@@ -76,7 +76,7 @@ fn setup(
     window.single_mut().resolution.set(1280., 720.);
     
     let player_data = ClientData::for_spawn(0, Color::WHITE, cfg.new_id());
-    let e = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &player_data);
+    let e = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &player_data, &mut cfg);
 
     commands.entity(e).insert(CameraFollow);
     let mut seed = rand::random();
@@ -347,7 +347,7 @@ fn update(
     }
 
     if inp.shoot{
-        spawn_bullet(transform.up().truncate() * 1000. + velocity.linvel, &transform, cfg.new_id(), cfg.new_id(), 3000., &asset_server, &mut commands);
+        spawn_bullet(transform.up().truncate() * 1000. + velocity.linvel, *transform, cfg.new_id(), cfg.new_id(), 3000., &asset_server, &mut commands);
     }
     
     let max_linvel = 700.;

@@ -291,7 +291,7 @@ impl Puppet{
 pub struct Chunk{pub pos: Vec2}
 
 #[derive (Component)]
-pub struct Bullet{pub previous_position: Transform, pub spawn_time: f32, pub owner: u64}
+pub struct Bullet;
 
 #[derive (Component)]
 pub struct Asteroid;
@@ -309,10 +309,10 @@ pub struct PuppetPlayer;
 
 #[derive(Serialize, Deserialize)]
 #[derive (Clone)]
-pub enum ObjectType{ // todo: ASTEROID SEED, BULLET OWNER(FOR COLOR), SHIP STYLE INSIDE ENUM!!! (for what?)
+pub enum ObjectType{ // todo: ASTEROID SEED, BULLET OWNER(FOR COLOR), SHIP STYLE INSIDE ENUM!!! (for what?) understand!
     Asteroid{seed: u64, hp: u8},
-    Bullet,
-    Ship,
+    Bullet{previous_position: Transform, spawn_time: f32, owner: u64},
+    Ship{style: u8, color: Color, shields: f32, hp: f32},
     PickUP{pickup_type: PickUPType},
 }
 
