@@ -50,8 +50,8 @@ fn main(){
     app.insert_resource(LoadedChunks{chunks: vec![]});
     app.insert_resource(GlobalConfig{
         map_size_chunks: Vec2{
-            x: 2.,
-            y: 2.
+            x: 3.,
+            y: 3.
         },
         single_chunk_size: Vec2{
             x: 1000.,
@@ -74,9 +74,10 @@ fn main(){
     app.add_systems(Update, (
         debug_chunk_render,
         resize_server_camera,
-        (snap_objects, update_chunks_around).chain(),
-        // multiplayer connection systems
-        send_message_system,
+        check_bullet_collisions_and_lifetime,
+
+        (snap_objects, update_chunks_around, send_message_system).chain(),
+
         receive_message_system,
         handle_events_system,
         //check_bullet_collisions_and_lifetime
@@ -237,7 +238,7 @@ fn setup_game(
                 linvel: Vec2 { 
                     x: (rand::random::<f32>() - 0.5), 
                     y: (rand::random::<f32>() - 0.5) 
-                } * 500., 
+                } * 0./*500.*/, 
                 angvel: (rand::random::<f32>() - 0.5) * 5.
             };
             let position = Transform::from_translation(
@@ -282,7 +283,7 @@ fn send_message_system(
     cfg: ResMut<GlobalConfig>,
 ) {
 
-    // todo: SEND ONLY 9 CHUNKS AROUND!!! (or no...)
+    // todo: (done!) SEND ONLY 9 CHUNKS AROUND!!! (or no...)
 
     let mut data: Vec<ObjectData> = vec![];
 
@@ -325,6 +326,7 @@ fn send_message_system(
                 for x in (chunk.x as i32) - 1 .. chunk.x as i32 + 2 {
                     for y in (chunk.y as i32) - 1 .. chunk.y as i32 + 2{
                         let real_chunk = cfg.chunk_to_real_chunk_v2(&Vec2{x: x as f32, y: y as f32});
+                        
                         let objects_in_chunk = chunk_to_objects.get(&(real_chunk.x as u32, real_chunk.y as u32));
                         if objects_in_chunk.is_some() && !included_chunks.contains(&(real_chunk.x as u32, real_chunk.y as u32)){
                             for object_data in objects_in_chunk.unwrap().iter(){
@@ -407,7 +409,7 @@ fn receive_message_system(
                                     if time.elapsed().as_secs_f32() - last_time > cfg.shoot_cd_secs{
                                         spawn_bullet(
                                             velocity.linvel + transform.up().truncate() * 1000., 
-                                            transform, 
+                                            *transform, 
                                             cfg.new_id(), 
                                             client_data.object_id, 
                                             current_time, 
@@ -420,7 +422,7 @@ fn receive_message_system(
                                 } else {
                                     spawn_bullet(
                                         velocity.linvel + transform.up().truncate() * 1000., 
-                                        transform, 
+                                        *transform, 
                                         cfg.new_id(), 
                                         client_data.object_id, 
                                         current_time, 
@@ -451,7 +453,7 @@ fn receive_message_system(
                     let object_id = cfg.new_id();
 
                     let for_spawn_cl_data = ClientData::for_spawn(style, color, object_id);
-                    let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &for_spawn_cl_data);
+                    let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &for_spawn_cl_data, &mut cfg);
 
                     let new_client_data = ClientData { 
                         client_id: client_id.raw(),
@@ -467,7 +469,6 @@ fn receive_message_system(
                     // SEND DATA TO CONNECTED PLAYER
                     let mut cfg_clone = cfg.clone();
                     cfg_clone.debug_render = false;
-                    cfg.debug_render = false;
                     let msg = Message::OnConnect{
                         clients_data: clients_data.clone(),
                         ship_object_id: object_id,

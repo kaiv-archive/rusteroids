@@ -133,6 +133,10 @@ pub fn setup_pixel_camera(
                 clear_color: ClearColorConfig::Custom(Color::Rgba { red: 0., green: 0., blue: 0., alpha: 1. }),
                 ..default()
             },
+            camera: Camera {
+                order: 2,
+                ..default()
+            },
             transform: Transform::from_xyz(0.0, 0.0, 15.0).looking_at(Vec3::ZERO, Vec3::Y),
             ..default()
         }, second_pass_layer,
@@ -444,6 +448,7 @@ pub fn spawn_ship(
     materials: &mut ResMut<Assets<ColorMaterial>>,
     commands: &mut Commands,
     player_data: &ClientData,
+    cfg: &mut ResMut<GlobalConfig>,
 ) -> Entity {
     let color = Color::from(player_data.color).as_rgba_f32();
     let target_style = player_data.style;
@@ -546,7 +551,7 @@ pub fn spawn_ship(
             Ship,
             Object{
                 id: player_data.object_id,
-                object_type: ObjectType::Ship
+                object_type: ObjectType::Ship { style: target_style, color: player_data.color, shields: cfg.player_shields, hp: cfg.player_hp }
             },
         )).insert(MaterialMesh2dBundle { //MESH
                 mesh: Mesh2dHandle(meshes.add(mesh)),
@@ -589,7 +594,7 @@ pub fn debug_chunk_render(
         return;
     }
 
-    let font = asset_server.load("fonts/F77MinecraftRegular-0VYv.ttf");
+    let font = asset_server.load("../assets/fonts/VecTerminus12Medium.otf");
     let text_style = TextStyle {
         font: font.clone(),
         font_size: 60.0,
@@ -679,7 +684,7 @@ pub fn update_chunks_around(
     mut commands: Commands,
 
     time: Res<Time>,
-    //asset_server: Res<AssetServer>,
+    asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 
@@ -778,7 +783,7 @@ pub fn update_chunks_around(
                         
                         match object.object_type{
                             ObjectType::Asteroid {seed, hp} => {
-                                let entity = spawn_asteroid(seed, **velocity, **transform, &mut meshes, &mut materials, &mut commands, object.id, cfg.get_asteroid_hp(seed));
+                                let entity = spawn_asteroid(seed, **velocity, transform.with_translation(pos), &mut meshes, &mut materials, &mut commands, object.id, cfg.get_asteroid_hp(seed));
                                 commands.entity(entity).insert(
                                     (
                                         Puppet {
@@ -786,14 +791,25 @@ pub fn update_chunks_around(
                                             binded_chunk: Chunk {
                                                 pos: *chunk
                                             }
-                                        },
-                                        transform.with_translation(pos), //.with_scale(Vec3::splat(2.))
+                                        },//.with_scale(Vec3::splat(2.))
                                         Name::new("ASTEROID PUPPET"),
                                     )
                                 );
                             },
-                            ObjectType::Bullet => {
-                                let owner = bullet_q.get(*entity).unwrap().owner;
+                            ObjectType::Bullet { previous_position, spawn_time, owner } => {
+                                let entity = spawn_bullet(velocity.linvel, transform.with_translation(pos), object.id, owner, spawn_time, &asset_server, &mut commands);
+                                commands.entity(entity).insert(
+                                    (
+                                        Puppet {
+                                            id: object.id,
+                                            binded_chunk: Chunk {
+                                                pos: *chunk
+                                        }
+                                    },
+                                    Name::new("BULLET PUPPET"),
+                                    )
+                                );
+                                /*
                                 let mut mesh = Mesh::new(PrimitiveTopology::LineList);
                                 mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0., 0., 0.,], [0., -50., 0.,]]);
                                 mesh.set_indices(Some(Indices::U32(vec![0, 1])));
@@ -825,7 +841,7 @@ pub fn update_chunks_around(
                                 ActiveEvents::COLLISION_EVENTS,
                                 Object{
                                     id: object.id,
-                                    object_type: ObjectType::Bullet
+                                    object_type: ObjectType::Bullet { previous_position, spawn_time, owner }
                                 },
                                 Puppet {
                                     id: object.id,
@@ -833,7 +849,7 @@ pub fn update_chunks_around(
                                         pos: *chunk
                                     }
                                 },
-                                Bullet{previous_position: transform.with_translation(pos), spawn_time: time.elapsed().as_secs_f32(), owner: owner}
+                                Bullet,
                                 ))
                                 .insert(MaterialMesh2dBundle {
                                     mesh: Mesh2dHandle(meshes.add(mesh.clone())),
@@ -841,15 +857,16 @@ pub fn update_chunks_around(
                                     transform: transform.with_translation(pos),
                                     ..default()}
                                 )
-                                .insert(transform.with_translation(pos));
+                                .insert(transform.with_translation(pos));*/
 
                             },
-                            ObjectType::Ship => {
+                            ObjectType::Ship { style, color, shields, hp } => {
                                 let player_data = clients_data.get_option_by_object_id(object.id);
                                 if player_data.is_some(){
                                     let player_data = player_data.unwrap();
-                                    let entity = spawn_ship(true, &mut meshes, &mut materials, &mut commands, player_data);
+                                    let entity = spawn_ship(true, &mut meshes, &mut materials, &mut commands, player_data, &mut cfg);
                                     commands.entity(entity).insert((
+                                        transform.with_translation(pos),
                                         RigidBody::Dynamic,
                                         **velocity,
                                         Friction{ // DISABLE ROTATING WHET COLLIDING TO ANYTHING ( MAYBE REPLACE IT ONLY FOR WALLS FOR FUN )
@@ -875,9 +892,9 @@ pub fn update_chunks_around(
                                         },
                                         Object{
                                             id: object.id,
-                                            object_type: ObjectType::Ship
+                                            object_type: ObjectType::Ship { style, color, shields, hp }
                                         },
-                                        transform.with_translation(pos),
+                                        
                                     ));
                                 }
                             }
@@ -897,7 +914,7 @@ pub fn update_chunks_around(
 
 pub fn spawn_bullet(
     target_velocity: Vec2,
-    transform: &Transform,
+    transform: Transform,
     object_id: u64,
     owner: u64,
     spawn_time: f32, // time.elapsed().as_secs_f32()
@@ -928,9 +945,9 @@ pub fn spawn_bullet(
         ActiveEvents::COLLISION_EVENTS,
         Object{
             id: object_id,
-            object_type: ObjectType::Bullet
+            object_type: ObjectType::Bullet{previous_position: Transform::from_translation(transform.translation), spawn_time: spawn_time, owner: owner}
         },
-        Bullet{previous_position: Transform::from_translation(transform.translation), spawn_time: spawn_time, owner: owner}
+        Bullet
     ))
     .insert(
         SpriteBundle {
@@ -947,118 +964,132 @@ pub fn check_status_lifetime(){} // todo
 pub fn check_pickups_collisions_and_lifetime(){} // todo
 
 
-/*pub fn check_bullet_collisions_and_lifetime(
-    mut bullets_data: Query<(Entity, &Transform, &mut Bullet), (With<Bullet>, Without<Puppet>)>,
+pub fn check_bullet_collisions_and_lifetime(
+    mut bullets_data: Query<(Entity, &Transform, &mut Bullet, &mut Object), (With<Bullet>, Without<Puppet>)>,
     rapier_context: Res<RapierContext>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    mut query_asteroid: Query<(&mut Asteroid, &Velocity), Without<Puppet>>,
-    mut query_ship: Query<&mut Object, With<Ship>>,
+    /*mut query_asteroid: Query<(&mut Asteroid, &Velocity, &mut Object), Without<Puppet>>,
+    mut query_ship: Query<&mut Object, With<Ship>>,*/
+    mut query_object: Query<(&mut Object, &mut Velocity), (Without<Puppet>, Without<Bullet>)>,
     mut cfg: ResMut<GlobalConfig>,
     time: Res<Time>
 ){
-    for (bullet_entity, transform,  mut bullet) in bullets_data.iter_mut() {
+    for (bullet_entity, transform,  mut bullet, mut object) in bullets_data.iter_mut() {
+        match object.object_type{
+            ObjectType::Bullet { mut previous_position, spawn_time, owner} => {
+                // HANDLE COLLISIONS
+                let previous_pos = previous_position.translation;
+                let previous_pos = Vec2::new(previous_pos.x, previous_pos.y);
+                let point = Vec2::new(transform.translation.x, transform.translation.y);
+                let dir = point - previous_pos;
+                let len = dir.length();
+                let filter = QueryFilter::default();
 
-        // HANDLE COLLISIONS
-        let previous_pos = bullet.previous_position.translation;
-        let previous_pos = Vec2::new(previous_pos.x, previous_pos.y);
-        let point = Vec2::new(transform.translation.x, transform.translation.y);
-        let dir = point - previous_pos;
-        let len = dir.length();
-        let filter = QueryFilter::default();
-
-
-        
-        // check collisions
-        rapier_context.intersections_with_ray(
-            point, dir, len, true, filter,
-            |entity, intersection| {
-                let hit_point = intersection.point;
-                
-                let ray_len = (hit_point - point).length(); // check 
-                if ray_len > len {
-                    return true
-                }
 
                 
-
-                //let hit_normal = intersection.normal; // USE FOR PARTILCES
-
-
-                // Check if entity is asteroid
-                if let Ok((mut e, velocity)) = query_asteroid.get_mut(entity){
-                    if e.hp != 0{
-                        e.hp = e.hp - 1;
-                    }
-                    
-                    commands.entity(bullet_entity).despawn_recursive();
-                    if e.hp <= 0{
-                        commands.entity(entity).despawn_recursive();                        
-                        /*
-                             |
-                             v
-                        o <- O -> o
-                         SPLIT ASTEROID
-                        */
-
-                        let current_size = get_asteroid_size(e.seed);
-                        if current_size != 1{
-                            let dir = (hit_point - dir).normalize().perp();
-                            let dir = Vec3{x: dir.x, y: dir.y, z:0.0};
-                            let dir1 = dir;
-                            let dir2 = -dir;
-                            let vel1 = Velocity{linvel: Vec2{x: velocity.linvel.x + dir1.x * (1. - random::<f32>()) * 50., y: velocity.linvel.y + dir1.x * (1. - random::<f32>()) * 50.}, angvel: velocity.angvel + (1. - random::<f32>() * 4.)};
-                            let vel2 = Velocity{linvel: Vec2{x: velocity.linvel.x + dir2.x * (1. - random::<f32>()) * 50., y: velocity.linvel.y + dir2.x * (1. - random::<f32>()) * 50.}, angvel: velocity.angvel + (1. - random::<f32>() * 4.)};
-
-                            let mut new_seed_1 = random::<u64>();
-                            while current_size - 1 != get_asteroid_size(new_seed_1){
-                                new_seed_1 = random::<u64>();
-                            }
-                            let mut new_seed_2 = random::<u64>();
-                            while current_size - 1 != get_asteroid_size(new_seed_2){
-                                new_seed_2 = random::<u64>();
-                            }
-                            spawn_asteroid(
-                                new_seed_1,
-                                vel1,
-                                Transform::from_translation(transform.translation + dir1 * current_size as f32 * 5.),
-                                &mut meshes,
-                                &mut materials,
-                                &mut commands,
-                                cfg.new_id(),
-                                cfg.get_asteroid_hp(new_seed_1)
-                            );
-                            spawn_asteroid(
-                                new_seed_2,
-                                vel2,
-                                Transform::from_translation(transform.translation + dir2 * current_size as f32 * 5.),
-                                &mut meshes,
-                                &mut materials,
-                                &mut commands,
-                                cfg.new_id(),
-                                cfg.get_asteroid_hp(new_seed_2)
-                            );
+                // check collisions
+                rapier_context.intersections_with_ray(
+                    point, dir, len, true, filter,
+                    |entity, intersection| {
+                        let hit_point = intersection.point;
+                        
+                        let ray_len = (hit_point - point).length(); // check 
+                        if ray_len > len {
+                            return true
                         }
-                    };
-                    return true
-                    //commands.entity(*bullet).despawn_recursive();
-                } else if let Ok(e) = query_ship.get_mut(entity){ // check ownership
-                    if e.id != bullet.owner { // check ownership
-                        commands.entity(bullet_entity).despawn_recursive();
-                        return true
-                    }
-                } else {
+
+                        
+
+                        //let hit_normal = intersection.normal; // USE FOR PARTILCES
+
+
+                        // Check if entity is asteroid
+                        if let Ok(tuple) = query_object.get_mut(entity){
+                            let (object, velocity) = tuple;
+                            match object.object_type{
+                                ObjectType::Asteroid { seed, mut hp } => {
+                                    if hp != 0{ // inserting everything
+                                        hp = hp - 1;
+                                    }
+                                    
+                                    commands.entity(bullet_entity).despawn_recursive();
+                                    if hp <= 0{
+                                        commands.entity(entity).despawn_recursive();                        
+                                        /*
+                                            |
+                                            v
+                                        o <- O -> o
+                                        SPLIT ASTEROID
+                                        */
+        
+                                        let current_size = get_asteroid_size(seed);
+                                        if current_size != 1{
+                                            let dir = (hit_point - dir).normalize().perp();
+                                            let dir = Vec3{x: dir.x, y: dir.y, z:0.0};
+                                            let dir1 = dir;
+                                            let dir2 = -dir;
+                                            let vel1 = Velocity{linvel: Vec2{x: velocity.linvel.x + dir1.x * (1. - random::<f32>()) * 50., y: velocity.linvel.y + dir1.x * (1. - random::<f32>()) * 50.}, angvel: velocity.angvel + (1. - random::<f32>() * 4.)};
+                                            let vel2 = Velocity{linvel: Vec2{x: velocity.linvel.x + dir2.x * (1. - random::<f32>()) * 50., y: velocity.linvel.y + dir2.x * (1. - random::<f32>()) * 50.}, angvel: velocity.angvel + (1. - random::<f32>() * 4.)};
+        
+                                            let mut new_seed_1 = random::<u64>();
+                                            while current_size - 1 != get_asteroid_size(new_seed_1){
+                                                new_seed_1 = random::<u64>();
+                                            }
+                                            let mut new_seed_2 = random::<u64>();
+                                            while current_size - 1 != get_asteroid_size(new_seed_2){
+                                                new_seed_2 = random::<u64>();
+                                            }
+                                            spawn_asteroid(
+                                                new_seed_1,
+                                                vel1,
+                                                Transform::from_translation(transform.translation + dir1 * current_size as f32 * 5.),
+                                                &mut meshes,
+                                                &mut materials,
+                                                &mut commands,
+                                                cfg.new_id(),
+                                                cfg.get_asteroid_hp(new_seed_1)
+                                            );
+                                            spawn_asteroid(
+                                                new_seed_2,
+                                                vel2,
+                                                Transform::from_translation(transform.translation + dir2 * current_size as f32 * 5.),
+                                                &mut meshes,
+                                                &mut materials,
+                                                &mut commands,
+                                                cfg.new_id(),
+                                                cfg.get_asteroid_hp(new_seed_2)
+                                            );
+                                        }
+                                    };
+                                    return true
+                                }
+                                ObjectType::Ship { style, color, shields, hp } => {
+                                    if object.id != owner { // check ownership
+                                        commands.entity(bullet_entity).despawn_recursive();
+                                        return true
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        false // Return `false` instead if we want to stop searching for other hits.
+                });
+                // UPDATE
+                //println!("pos {} -> {}", previous_position.translation.truncate(), transform.translation.truncate());
+                object.object_type = ObjectType::Bullet {
+                    previous_position: *transform,
+                    spawn_time,
+                    owner
+                };
+                
+                //LIFETIME
+                if time.elapsed().as_secs_f32() - spawn_time > cfg.bullet_lifetime_secs{
                     commands.entity(bullet_entity).despawn_recursive();
-                    return true
                 }
-                false // Return `false` instead if we want to stop searching for other hits.
-        });
-        // UPDATE
-        bullet.previous_position = *transform;
-        //LIFETIME
-        if time.elapsed().as_secs_f32() - bullet.spawn_time > cfg.bullet_lifetime_secs{
-            commands.entity(bullet_entity).despawn_recursive();
+            }
+            _ => {}
         }
     }
 }
@@ -1069,4 +1100,3 @@ pub fn check_ships_collisions_lifes(
 
 }
 
-*/

@@ -1,6 +1,6 @@
 use std::{net::UdpSocket, time::SystemTime, f32::consts::PI};
 
-use bevy::{prelude::*, DefaultPlugins, utils::HashMap, transform::commands, window::WindowResized};
+use bevy::{prelude::*, DefaultPlugins, utils::HashMap, window::WindowResized};
 
 use bevy_inspector_egui::{quick::WorldInspectorPlugin, bevy_egui::EguiPlugin};
 use bevy_rapier2d::prelude::Velocity;
@@ -89,8 +89,6 @@ fn main(){
         (
             debug_chunk_render,
             
-
-
             (receive_message_system, snap_objects, update_chunks_around, starfield_update, camera_follow).chain(),
             handle_inputs_system,
             
@@ -137,9 +135,6 @@ fn init_client(
     settings: Res<GameSettings>,
     mut commands: Commands,
     mut connect_properties: ResMut<ConnectProperties>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    // todo: FOR DEBUG => REMOVE IT
     mut clients_data: ResMut<ClientsData>,
 ){  
     for e in reader.read(){
@@ -148,7 +143,6 @@ fn init_client(
         
         // STYLE
         //e.style;
-
 
         //let name = settings.name;
 
@@ -206,7 +200,7 @@ fn handle_inputs_system(
     camera_q: Query<(&Camera, &GlobalTransform), (With<Camera>, Without<PixelCamera>)>,
 ){
     let mut inp = InputKeys::default();
-    inp.up = false;
+    /*inp.up = false;
     inp.down = false;
     inp.left = false;
     inp.right = false;
@@ -215,7 +209,7 @@ fn handle_inputs_system(
     inp.stabilize = false;
     inp.shoot = false;
     inp.dash = false;
-    inp.rotation_target = Vec2::ZERO;
+    inp.rotation_target = Vec2::ZERO;*/
     let player_data = player_data.get_single_mut();
     if player_data.is_err(){
         return;
@@ -228,6 +222,7 @@ fn handle_inputs_system(
     if keys.pressed(KeyCode::A){inp.left = true}
     if keys.pressed(KeyCode::D){inp.right = true}
 
+    if keys.pressed(KeyCode::Space){inp.shoot = true}
     
     
     if let Ok(t) = camera_q.get_single(){
@@ -274,6 +269,7 @@ fn receive_message_system(
     mut objects_q: Query<(Entity, &Object, &mut Velocity, &mut Transform), (With<Object>, Without<Puppet>)>,
     mut followed_q: Query<(Entity, &Object), With<CameraFollow>>,
     mut loaded_chunks: ResMut<LoadedChunks>,
+    asset_server: Res<AssetServer>,
 ){
     if client.is_disconnected(){
         next_state.set(ClientState::Menu);
@@ -324,30 +320,30 @@ fn receive_message_system(
                         );
                         Some((e, object_data.object.id))
                     },
-                    ObjectType::Bullet => {
-                        /*let e = spawn_bullet(
-                            target_velocity,
-                            transform, 
-                            object_id, 
+                    ObjectType::Bullet { previous_position: _, spawn_time, owner } => {
+                        let e = spawn_bullet(
+                            object_data.linear_velocity,
+                            Transform::from_translation(object_data.translation).with_rotation(object_data.rotation), 
+                            object_data.object.id, 
                             owner, 
                             spawn_time, 
-                            asset_server, 
+                            &asset_server, 
                             &mut commands
-                        );*/
-                        None
+                        );
+                        Some((e, object_data.object.id))
                     },
-                    ObjectType::Ship => {
+                    ObjectType::Ship { style, color, shields, hp } => {
                         let client_op = local_clients_data.get_option_by_object_id(object_data.object.id);
                         if client_op.is_some(){
                             let clientdata = client_op.unwrap();
                             let name = &clientdata.name;
-                            let e = spawn_ship(false, &mut meshes, &mut materials, &mut commands, clientdata);
+                            let e = spawn_ship(false, &mut meshes, &mut materials, &mut commands, clientdata, &mut cfg);
                             //println!("SPAWNED SHIP FOR {} WITH ID {} -> E {:?}", client.client_id, client.object_id, e);
                             commands.entity(e).insert((
                                 Name::new(format!("Player {}", name)),
                                 Object{
                                     id: object_data.object.id,
-                                    object_type: ObjectType::Ship
+                                    object_type: ObjectType::Ship{ style, color, shields, hp }
                                 }
                             ));
                             if object_data.object.id == local_clients_data.get_by_client_id(transport.client_id()).object_id{
