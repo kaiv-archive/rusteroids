@@ -9,6 +9,8 @@ use bevy_egui::{egui::{self, Style, Visuals, epaint::Shadow, Color32, Rounding, 
 
 
 //#[path = "settings.rs"] mod settings;
+#[path = "console.rs"] mod console;
+use console::*;
 #[path = "game.rs"] mod game;
 use game::*;
 use game::components::*;
@@ -74,18 +76,25 @@ fn main(){
     app.add_systems(Update, (
         debug_chunk_render,
         resize_server_camera,
+
         check_bullet_collisions_and_lifetime,
+        check_ship_collisions_and_lifetime,
+        /*asteroids_refiller,*/
 
         (snap_objects, update_chunks_around, send_message_system).chain(),
 
         receive_message_system,
         handle_events_system,
+        
+        console_renderer,
+        command_executer
         //check_bullet_collisions_and_lifetime
     ).run_if(in_state(ServerState::Running)));
     //app.add_systems(OnExit(ServerState::Running), cleanup_menu)
 
     app.add_event::<ServerEvent>();
     
+    setup_commands_executer(&mut app, true);
 
     app.run();
 }
@@ -177,6 +186,7 @@ fn setup_game(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut time: Res<Time>,
+    
 ){
     // INIT SERVER   
     let server = RenetServer::new(connection_config());
@@ -230,6 +240,8 @@ fn setup_game(
             loaded_chunks.chunks.push(Chunk { pos: Vec2::from((x as f32, y as f32)) });
         }
     }
+
+    commands.insert_resource(ObjectsDistribution{data: HashMap::new()});
     
     // SPAWN ASTEROIDS
     for x in 0..cfg.map_size_chunks.x as u32{
@@ -251,6 +263,7 @@ fn setup_game(
             spawn_asteroid(seed, vel, position, &mut meshes, &mut materials, &mut commands, cfg.new_id(), cfg.get_asteroid_hp(seed));
         }
     }
+
     // INIT GAME
 }
 
@@ -280,17 +293,19 @@ fn send_message_system(
     clients_data: Res<ClientsData>,
     mut commands: Commands,
     mut objects_q: Query<(&Object, &Velocity, &Transform), (With<Object>, Without<Puppet>)>,
+    mut objects_distribution: ResMut<ObjectsDistribution>, 
     cfg: ResMut<GlobalConfig>,
 ) {
 
-    // todo: (done!) SEND ONLY 9 CHUNKS AROUND!!! (or no...)
-
-    let mut data: Vec<ObjectData> = vec![];
+    objects_distribution.data = HashMap::new();
 
     let mut chunk_to_objects: HashMap<(u32, u32), Vec<ObjectData>> = HashMap::new();
 
     for object in objects_q.iter(){
         let (object, velocity, transform) = object;
+
+        
+
         let object_data = ObjectData{
             object: object.clone(),
             angular_velocity: velocity.angvel,
@@ -298,9 +313,7 @@ fn send_message_system(
             translation: transform.translation,
             rotation: transform.rotation,
         };
-        data.push(
-            object_data.clone()
-        );
+
         let chunk_pos = cfg.pos_to_chunk(&transform.translation);
         let key = (chunk_pos.x as u32, chunk_pos.y as u32);
 
@@ -310,6 +323,18 @@ fn send_message_system(
         } else {
             chunk_to_objects.insert((chunk_pos.x as u32, chunk_pos.y as u32), vec![object_data]);
         }
+        let is_player = match object.object_type{
+            ObjectType::Ship { style: _, color: _, shields: _, hp: _, death_time: _ } => {true},
+            _ => {false}
+        };
+        if objects_distribution.data.contains_key(&key){
+            let (n, has_player, mut vec) = objects_distribution.data.get(&key).unwrap().clone();
+            vec.push(transform.translation.truncate());
+            
+            objects_distribution.data.insert(key, (n + 1, is_player || has_player, vec));
+        } else {
+            objects_distribution.data.insert(key, (1, is_player, vec![transform.translation.truncate()]));
+        }
     }
 
 
@@ -317,9 +342,11 @@ fn send_message_system(
         let cd = clients_data.get_option_by_client_id(client_id.raw());
         if cd.is_some(){
             let e = cd.unwrap().entity;
-            let o = objects_q.get(e);
-            if o.is_ok(){
-                let (_, _, t) = o.unwrap();
+            let obj = objects_q.get(e);
+            if obj.is_ok(){
+                let (iterated_ship, _, t) = obj.unwrap();
+
+                
                 let chunk = cfg.pos_to_chunk(&t.translation);
                 let mut included_chunks = HashSet::new(); // exclude overlapping chunks if map is small size of (1; 1) -> 8*(1; 1) same chunks with same objects
                 let mut personalised_data: Vec<ObjectData> = vec![];
@@ -330,7 +357,16 @@ fn send_message_system(
                         let objects_in_chunk = chunk_to_objects.get(&(real_chunk.x as u32, real_chunk.y as u32));
                         if objects_in_chunk.is_some() && !included_chunks.contains(&(real_chunk.x as u32, real_chunk.y as u32)){
                             for object_data in objects_in_chunk.unwrap().iter(){
-                                personalised_data.push(object_data.clone());
+                                match object_data.object.object_type{
+                                    ObjectType::Ship { style: _, color: _, shields: _, hp: _, death_time } => { // todo: invisibility power up
+                                        if death_time == 0. || object_data.object.id == iterated_ship.id{
+                                            personalised_data.push(object_data.clone());
+                                        }
+                                    },
+                                    _ => {
+                                        personalised_data.push(object_data.clone());
+                                    }
+                                }
                             }
                             included_chunks.insert((real_chunk.x as u32, real_chunk.y as u32));
                         }
@@ -363,6 +399,7 @@ fn receive_message_system(
     mut server: ResMut<RenetServer>,
     mut clients_data: ResMut<ClientsData>,
     mut commands: Commands,
+    mut objects_distribution: ResMut<ObjectsDistribution>,
     mut cfg: ResMut<GlobalConfig>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
@@ -453,7 +490,10 @@ fn receive_message_system(
                     let object_id = cfg.new_id();
 
                     let for_spawn_cl_data = ClientData::for_spawn(style, color, object_id);
-                    let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &for_spawn_cl_data, &mut cfg);
+
+                    let pos = get_pos_to_spawn(&mut objects_distribution, &mut cfg).extend(0.);
+                    
+                    let entity = spawn_ship(false, pos, &mut meshes, &mut materials, &mut commands, &for_spawn_cl_data, &mut cfg);
 
                     let new_client_data = ClientData { 
                         client_id: client_id.raw(),

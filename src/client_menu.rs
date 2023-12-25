@@ -62,8 +62,8 @@ pub fn update_preview_ship(
             if clientdata.style != *prev_style || clientdata.color != *prev_color{
                 commands.entity(e).despawn_recursive();
                 let player_data = clients_data.get_by_client_id(0);
-                let e = spawn_ship(true, &mut meshes, &mut materials, &mut commands, player_data, &mut cfg);
-                commands.entity(e).insert((ShipPreview, RenderLayers::layer(GameRenderLayers::PreviewCamera as u8)));
+                let e = spawn_ship(true, Vec3::ZERO, &mut meshes, &mut materials, &mut commands, player_data, &mut cfg);
+                commands.entity(e).insert((ShipPreview, RenderLayers::layer(GameRenderLayers::PreviewCamera as u8), Transform::from_translation(Vec3::ZERO).with_scale(Vec3::splat(32.))));
                 *prev_style = clientdata.style;
                 *prev_color = clientdata.color;
             }
@@ -150,7 +150,7 @@ pub fn setup_preview_camera(
         Name::new("ShipPreviewCamera")
     )).insert(preview_pass_layer);
     let player_data = clients_data.get_by_client_id(0);
-    let e = spawn_ship(true, &mut meshes, &mut materials, &mut commands, player_data, &mut cfg);
+    let e = spawn_ship(true, Vec3::ZERO, &mut meshes, &mut materials, &mut commands, player_data, &mut cfg);
     commands.entity(e).insert((ShipPreview, RenderLayers::layer(GameRenderLayers::PreviewCamera as u8)));
 }
 

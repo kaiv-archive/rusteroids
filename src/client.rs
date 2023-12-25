@@ -332,20 +332,25 @@ fn receive_message_system(
                         );
                         Some((e, object_data.object.id))
                     },
-                    ObjectType::Ship { style, color, shields, hp } => {
+                    ObjectType::Ship { style, color, shields, hp, death_time } => {
                         let client_op = local_clients_data.get_option_by_object_id(object_data.object.id);
                         if client_op.is_some(){
                             let clientdata = client_op.unwrap();
                             let name = &clientdata.name;
-                            let e = spawn_ship(false, &mut meshes, &mut materials, &mut commands, clientdata, &mut cfg);
+                            let e = spawn_ship(false, object_data.translation, &mut meshes, &mut materials, &mut commands, clientdata, &mut cfg);
                             //println!("SPAWNED SHIP FOR {} WITH ID {} -> E {:?}", client.client_id, client.object_id, e);
                             commands.entity(e).insert((
                                 Name::new(format!("Player {}", name)),
                                 Object{
                                     id: object_data.object.id,
-                                    object_type: ObjectType::Ship{ style, color, shields, hp }
+                                    object_type: ObjectType::Ship{ style, color, shields, hp, death_time }
                                 }
                             ));
+                            if death_time == 0. {
+                                commands.entity(e).insert(Visibility::Inherited);
+                            } else {
+                                commands.entity(e).insert(Visibility::Hidden);
+                            }
                             if object_data.object.id == local_clients_data.get_by_client_id(transport.client_id()).object_id{
                                 commands.entity(e).insert(CameraFollow);
                             }

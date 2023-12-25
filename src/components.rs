@@ -176,17 +176,24 @@ pub enum ApplyCameraSettings{
 #[derive (Clone)]
 #[derive (Resource)]
 pub struct GlobalConfig{
+    // MAP
     pub last_id: u64,
+
     pub map_size_chunks: Vec2, //   !!!MUST BE INTEGER!!!
     pub single_chunk_size: Vec2, // !!!MUST BE INTEGER!!!
+    pub asteroids_per_chunk: f32,
+
     pub debug_render: bool,
+    // OBJECTS
     pub asteroid_hp: [i8; 3],
     pub player_hp: f32,
     pub player_shields: f32,
     pub bullet_damage: f32,
+    // TIMERS
     pub dash_cd_secs: f32,
     pub shoot_cd_secs: f32,
     pub bullet_lifetime_secs: f32,
+    pub respawn_time_secs: f32,
 
 }
 impl Default for GlobalConfig {
@@ -195,14 +202,16 @@ impl Default for GlobalConfig {
             last_id: 0,
             map_size_chunks: Vec2{x: 5., y: 5.},
             single_chunk_size: Vec2{x: 500., y: 500.},
+            asteroids_per_chunk: 1.,
             debug_render: false,
             asteroid_hp: [1, 1, 1],
             player_hp: 100.,
             player_shields: 100.,
-            bullet_damage: 20.,
+            bullet_damage: 200.,
             dash_cd_secs: 3.,
             shoot_cd_secs: 0.5,
             bullet_lifetime_secs: 10.,
+            respawn_time_secs: 5.
         }
     }
 }
@@ -252,7 +261,12 @@ impl GlobalConfig{
 }
 
 #[derive(Resource)]
-pub struct LoadedChunks{ pub chunks: Vec<Chunk> }
+pub struct LoadedChunks{ pub chunks: Vec<Chunk> } // todo: fow what? (debug maybe)
+
+#[derive(Resource)]
+pub struct ObjectsDistribution{
+    pub data: HashMap<(u32, u32), (u32, bool, Vec<Vec2>)>
+}
 
 #[derive(Event)]
 pub struct BrokeAsteroid( pub Entity );
@@ -272,7 +286,7 @@ pub enum GameRenderLayers{
 
 
 #[derive(Serialize, Deserialize)]
-#[derive (Component, Clone)]
+#[derive (Component, Clone, Copy)]
 pub struct Object{
     pub id: u64,
     pub object_type: ObjectType
@@ -280,12 +294,13 @@ pub struct Object{
 
 #[derive (Component, Clone)]
 pub struct Puppet{pub id: u64, pub binded_chunk: Chunk}
-
+/*
 impl Puppet{
     pub fn empty() -> Self{
         return Puppet{id:0, binded_chunk: Chunk { pos: Vec2::ZERO }}
     }
 }
+*/
 
 #[derive (Component, Clone)]
 pub struct Chunk{pub pos: Vec2}
@@ -308,11 +323,11 @@ pub struct PuppetPlayer;
 
 
 #[derive(Serialize, Deserialize)]
-#[derive (Clone)]
-pub enum ObjectType{ // todo: ASTEROID SEED, BULLET OWNER(FOR COLOR), SHIP STYLE INSIDE ENUM!!! (for what?) understand!
+#[derive (Clone, Copy)]
+pub enum ObjectType{
     Asteroid{seed: u64, hp: u8},
     Bullet{previous_position: Transform, spawn_time: f32, owner: u64},
-    Ship{style: u8, color: Color, shields: f32, hp: f32},
+    Ship{style: u8, color: Color, shields: f32, hp: f32, death_time: f32},
     PickUP{pickup_type: PickUPType},
 }
 

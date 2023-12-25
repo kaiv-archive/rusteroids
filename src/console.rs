@@ -1,5 +1,5 @@
 
-use bevy::{input::{keyboard::KeyCode, Input}, ecs::system::{Local, Res, Resource}, prelude::*};
+use bevy::{input::{keyboard::KeyCode, Input}, ecs::system::{Local, Res, Resource}, prelude::*, utils::hashbrown::HashMap};
 use bevy_egui::{egui::{epaint::Shadow, self}, EguiContexts};
 use bevy_rapier2d::rapier::crossbeam::epoch::Pointable;
 
@@ -29,6 +29,7 @@ pub struct CommandEvent{command: String}
 pub fn command_executer(
     mut reader: EventReader<CommandEvent>,
     mut chat_history: ResMut<ChatHistory>,
+    mut commands: Commands
 ){
     
     let mut log = |text: String|{
@@ -38,17 +39,41 @@ pub fn command_executer(
     for event in reader.read(){
         if event.command.is_empty() || event.command.chars().all(|s| s == ' ') {continue;} // empty
         if event.command.starts_with("/"){
+
+            let spawn_example = "/spawn [thing: asteroid/...] [chunk x: int] [chunk y: int]";
+
+
+
             let mut command = event.command.clone();
 
             log(format!("> {}", command));
             command.remove(0);
             let splitted: Vec<&str> = command.split_whitespace().collect();
-            if splitted.len() == 0 {println!("WAT??")}; // idk how it can happen
 
-            let head_command = splitted[0];
+            let mut head_command = splitted.get(0);
+            let head_command = if head_command.is_some(){
+                *head_command.unwrap()
+            } else {
+                log(format!("< There is no command body!"));
+                continue;
+            };
+
+
             match head_command {
                 "help" => {log("< help command executed!".into())}
-                "spawn" => {log("< spawn command executed!".into())}
+                "spawn" => {
+                    let thing = splitted.get(1);
+                    let thing = if thing.is_some(){
+                        *thing.unwrap()
+                    } else {
+                        log(format!("< Using: {}", spawn_example));
+                        continue;
+                    };
+                    match thing {
+                        "asteroid" => {}
+                        _ => {log(format!("< Unknown thing: {} \n  Using: {}", thing, spawn_example))}
+                    }
+                }
                 "kill" => {log("< kill command executed!".into())}
                 "kick" => {log("< kick command executed!".into())}
                 "say" => {log("< say command executed!".into())}

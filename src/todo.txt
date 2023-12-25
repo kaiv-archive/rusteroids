@@ -72,3 +72,4 @@ CLEAN UP
 
 
 !!! OPTIMIZE USING MATERIALS OF ASTEROID !!!
+solve Chunk and (u32, u32) usage!

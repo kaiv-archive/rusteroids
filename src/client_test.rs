@@ -7,6 +7,7 @@ use bevy::render::render_resource::PrimitiveTopology;
 use bevy::sprite::{Mesh2dHandle, MaterialMesh2dBundle};
 use bevy::window::WindowResized;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy_rapier2d::rapier::geometry::ColliderEnabled;
 use weighted_rand::builder::*;
 use rand::Rng;
 
@@ -76,7 +77,7 @@ fn setup(
     window.single_mut().resolution.set(1280., 720.);
     
     let player_data = ClientData::for_spawn(0, Color::WHITE, cfg.new_id());
-    let e = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &player_data, &mut cfg);
+    let e = spawn_ship(false, Vec3::ZERO,&mut meshes, &mut materials, &mut commands, &player_data, &mut cfg);
 
     commands.entity(e).insert(CameraFollow);
     let mut seed = rand::random();
@@ -118,6 +119,7 @@ fn setup(
     let x_bundle = (
         bundle.clone(),
         Collider::cuboid(room_size.x / 2., thickness / 2.),
+        
     );
     let y_bundle = (
         bundle.clone(),
