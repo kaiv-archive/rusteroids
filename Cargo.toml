@@ -18,13 +18,11 @@ opt-level = 3
 
 [dependencies]
 bevy = { version = "0.12.1", features = ["dynamic_linking", "bevy_dynamic_plugin", "multi-threaded", "serialize"]}
-bevy_rapier2d = { version = "0.23.0", features = [ "debug-render-2d", "parallel" ] }
+bevy_rapier2d = { version = "0.23.0", features = [ "debug-render-2d", "parallel", "enhanced-determinism" ] }
 
 bevy_egui = "0.23.0"
 bevy-inspector-egui = "0.21.0"
 
-
- 
 bevy_hanabi = "0.8"
 
 

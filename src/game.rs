@@ -292,7 +292,6 @@ pub fn get_ship_vertices(style: u8) -> (Vec<Vec<(f32, f32)>>, Vec<Vec<u32>>){
     //let permutation = permutation::sort(&z_indexes);
     //let vertices = permutation.apply_slice(&vertices);
     //let indices = permutation.apply_slice(&indices);
-    
     return (vertices, indices);
 }
 
@@ -444,7 +443,6 @@ pub fn spawn_asteroid(
 
 pub fn spawn_ship(
     mesh_only: bool,
-    pos: Vec3,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<ColorMaterial>>,
     commands: &mut Commands,
@@ -517,7 +515,7 @@ pub fn spawn_ship(
     } else {
         Mesh::new(PrimitiveTopology::TriangleList)
     };
-    
+    vertices = vertices.iter().map(|x| *x * 3.).collect();
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices);        
     mesh.set_indices(Some(Indices::U32(indices)));
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vertex_colors);
@@ -533,16 +531,8 @@ pub fn spawn_ship(
             ColliderMassProperties::Density(2.),
             GravityScale(0.0),
             Sleeping::disabled(),
-            //Ccd::enabled(),
-            //Collider::triangle(Vec2::new(0., 5.0), Vec2::new(-3., -5.), Vec2::new(3., -5.)),
-            Collider::trimesh(vec![Vec2::new(0., 6. + offset), Vec2::new(-3., -1. + offset), Vec2::new(3., -1. + offset), Vec2::new(0., -4. + offset)], vec![[0, 1, 3], [3, 2, 0]]),
-            
-            /*Collider::compound(vec![
-                (Vec2::ZERO, 0., Collider::triangle(Vec2::new(0., 5.0), Vec2::new(-3., -2.), Vec2::new(3., -2.))),
-                (Vec2::ZERO, 0., Collider::triangle(Vec2::new(-3., -2.), Vec2::new(3., -2.), Vec2::new(0., -5.)))
-                ]),*/
-            //Collider::polyline(vec![Vec2::new(0., 5.0), Vec2::new(-3., -2.), Vec2::new(3., -2.), Vec2::new(0., -5.)], Some(vec![[0, 1], [1, 3], [0, 2], [2, 3]])),
-            //Collider::ball(5.),
+            Ccd::enabled(),
+            Collider::trimesh(vec![Vec2::new(0., 17.), Vec2::new(-9., -4.), Vec2::new(9., -4.), Vec2::new(0., -13.)], vec![[0, 1, 3], [3, 2, 0]]),
             Restitution {
                 coefficient: 0.1,
                 combine_rule: CoefficientCombineRule::Average,
@@ -556,7 +546,7 @@ pub fn spawn_ship(
             },
         )).insert(MaterialMesh2dBundle { //MESH
                 mesh: Mesh2dHandle(meshes.add(mesh)),
-                transform: Transform::from_translation(pos).with_scale(Vec3::splat(3.)),
+                transform: Transform::from_translation(Vec3::ZERO),
                 material: materials.add(ColorMaterial::default()), //ColorMaterial::from(texture_handle)
                 ..default()
             },
@@ -565,7 +555,7 @@ pub fn spawn_ship(
         commands.spawn(
             MaterialMesh2dBundle { //MESH
                 mesh: Mesh2dHandle(meshes.add(mesh)),
-                transform: Transform::from_translation(pos).with_scale(Vec3::splat(3.)),
+                transform: Transform::from_translation(Vec3::ZERO),
                     //,
                 material: materials.add(ColorMaterial::default()), //ColorMaterial::from(texture_handle)
                 ..default()
@@ -865,25 +855,12 @@ pub fn update_chunks_around(
                                 let player_data = clients_data.get_option_by_object_id(object.id);
                                 if player_data.is_some(){
                                     let player_data = player_data.unwrap();
-                                    let entity = spawn_ship(true, pos,&mut meshes, &mut materials, &mut commands, player_data, &mut cfg);
+                                    let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, player_data, &mut cfg);
                                     commands.entity(entity).insert((
-                                        RigidBody::Dynamic,
                                         **velocity,
-                                        Friction{ // DISABLE ROTATING WHET COLLIDING TO ANYTHING ( MAYBE REPLACE IT ONLY FOR WALLS FOR FUN )
-                                            coefficient: 0.0,
-                                            combine_rule: CoefficientCombineRule::Min
-                                        },
-                                        GravityScale(0.0),
-                                        Sleeping::disabled(),
-                                        Ccd::enabled(),
-                                        Collider::triangle(Vec2::new(0., 0.5), Vec2::new(-0.33, -0.4), Vec2::new(0.33, -0.4)),
-                                        Restitution {
-                                            coefficient: 1.,
-                                            combine_rule: CoefficientCombineRule::Multiply,
-                                        },
+                                        Transform::from_translation(pos),
                                         Name::new(format!("Player Puppet of {}:{}", object.id, player_data.client_id)),
                                         ActiveEvents::CONTACT_FORCE_EVENTS,
-                                        Ship,
                                         Puppet {
                                             id: object.id,
                                             binded_chunk: Chunk {
@@ -894,7 +871,6 @@ pub fn update_chunks_around(
                                             id: object.id,
                                             object_type: ObjectType::Ship { style, color, shields, hp, death_time }
                                         },
-                                        
                                     ));
                                 }
                             }
@@ -965,10 +941,22 @@ pub fn check_pickups_collisions_and_lifetime(){} // todo
 
 
 pub fn asteroids_refiller(
-    objects_distribution: &mut ResMut<ObjectsDistribution>,
-    cfg: &Res<GlobalConfig>,
+    mut objects_distribution: ResMut<ObjectsDistribution>,
+    mut cfg: ResMut<GlobalConfig>,
+    asteroids_q: Query<&Asteroid, Without<Puppet>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut commands: Commands,
 ){
-
+    if asteroids_q.into_iter().len() < cfg.map_size_chunks.x as usize * cfg.map_size_chunks.y as usize{
+        let seed = random::<u64>();
+        let pos = get_pos_to_spawn(&mut objects_distribution, &cfg).extend(0.);
+        let velocity = Velocity{
+            linvel: (Vec2::from(random::<(f32, f32)>()) - Vec2::ONE * 0.5) * 300.,
+            angvel: (random::<f32>() - 0.5) * 5.
+        };
+        spawn_asteroid(seed, velocity, Transform::from_translation(pos), &mut meshes, &mut materials, &mut commands, cfg.new_id(), cfg.get_asteroid_hp(seed));
+    }
 }
 
 

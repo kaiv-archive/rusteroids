@@ -52,8 +52,8 @@ fn main(){
     app.insert_resource(LoadedChunks{chunks: vec![]});
     app.insert_resource(GlobalConfig{
         map_size_chunks: Vec2{
-            x: 3.,
-            y: 3.
+            x: 2.,
+            y: 2.
         },
         single_chunk_size: Vec2{
             x: 1000.,
@@ -79,9 +79,9 @@ fn main(){
 
         check_bullet_collisions_and_lifetime,
         check_ship_collisions_and_lifetime,
-        /*asteroids_refiller,*/
+        
 
-        (snap_objects, update_chunks_around, send_message_system).chain(),
+        (asteroids_refiller, snap_objects, update_chunks_around, send_message_system).chain(),
 
         receive_message_system,
         handle_events_system,
@@ -244,7 +244,7 @@ fn setup_game(
     commands.insert_resource(ObjectsDistribution{data: HashMap::new()});
     
     // SPAWN ASTEROIDS
-    for x in 0..cfg.map_size_chunks.x as u32{
+    /*for x in 0..cfg.map_size_chunks.x as u32{
         for y in 0..cfg.map_size_chunks.y as u32{
             let vel = Velocity{
                 linvel: Vec2 { 
@@ -262,7 +262,7 @@ fn setup_game(
             let seed = rand::random::<u64>();
             spawn_asteroid(seed, vel, position, &mut meshes, &mut materials, &mut commands, cfg.new_id(), cfg.get_asteroid_hp(seed));
         }
-    }
+    }*/
 
     // INIT GAME
 }
@@ -492,9 +492,9 @@ fn receive_message_system(
                     let for_spawn_cl_data = ClientData::for_spawn(style, color, object_id);
 
                     let pos = get_pos_to_spawn(&mut objects_distribution, &mut cfg).extend(0.);
-                    
-                    let entity = spawn_ship(false, pos, &mut meshes, &mut materials, &mut commands, &for_spawn_cl_data, &mut cfg);
 
+                    let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &for_spawn_cl_data, &mut cfg);
+                    commands.entity(entity).insert(Transform::from_translation(pos));
                     let new_client_data = ClientData { 
                         client_id: client_id.raw(),
                         object_id: object_id,

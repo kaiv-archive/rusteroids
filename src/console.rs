@@ -50,7 +50,7 @@ pub fn command_executer(
             command.remove(0);
             let splitted: Vec<&str> = command.split_whitespace().collect();
 
-            let mut head_command = splitted.get(0);
+            let head_command = splitted.get(0);
             let head_command = if head_command.is_some(){
                 *head_command.unwrap()
             } else {
@@ -70,7 +70,9 @@ pub fn command_executer(
                         continue;
                     };
                     match thing {
-                        "asteroid" => {}
+                        "asteroid" => {
+                            
+                        }
                         _ => {log(format!("< Unknown thing: {} \n  Using: {}", thing, spawn_example))}
                     }
                 }
