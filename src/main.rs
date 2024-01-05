@@ -1,19 +1,7 @@
-#![windows_subsystem = "windows"]
-//mod solo_client;
-mod server;
-
-mod test;
-
-mod settings;
-
 
 
 fn main() {
-    //client::main();
-    //client::main();
 
-    //test::main();
-    //server::main();
 }
 
 

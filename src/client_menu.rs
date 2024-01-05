@@ -1,9 +1,9 @@
 use std::{f32::consts::PI, ops::RangeInclusive};
 use bevy::{render::{view::RenderLayers, render_resource::{TextureDescriptor, Extent3d, TextureDimension, TextureFormat, TextureUsages}, camera::RenderTarget}, prelude::*, app::AppExit, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::{BloomCompositeMode, BloomSettings}, clear_color::ClearColorConfig}};
-use bevy_egui::{egui::{self, Style, Visuals, epaint::Shadow, Color32, Rounding, Align, Stroke, FontId, load::SizedTexture, Slider}, EguiContexts, EguiUserTextures};
+use bevy_egui::{egui::{self, Style, Visuals, epaint::{Shadow, CircleShape}, Color32, Rounding, Align, Stroke, FontId, load::SizedTexture, Slider, TextureId, ComboBox}, EguiContexts, EguiUserTextures};
 use rand::random;
 
-use crate::{game::*, InitClient, ConnectProperties, ClientState};
+use crate::{game::*, game::components::{ConnectProperties, ClientState}};
 
 #[derive(Component)]
 pub struct LabelAnimation;
@@ -167,10 +167,12 @@ pub fn egui_based_menu(
    mut port: Local<String>,
     //STYLE
    mut ship_style: Local<(u8, bool, bool, bool, bool, bool, bool, bool, bool)>,
+   mut saturation: Local<f32>,
+   mut color_selector_vector: Local<egui::Vec2>,
     //OTHER
    mut settings: ResMut<GameSettings>,
    mut writer: EventWriter<ApplyCameraSettings>,
-   mut writer_init: EventWriter<InitClient>,
+   //mut writer_init: EventWriter<InitClient>,
    //mut ship_preview: ResMut<ShipPreviewImage>,
    mut connect_properties: ResMut<ConnectProperties>,
    mut next_state: ResMut<NextState<ClientState>>,
@@ -336,16 +338,17 @@ pub fn egui_based_menu(
                 if *adress == "" {*adress = "127.0.0.1".to_owned()};
                 if let Ok(_) = (*port).parse::<i32>(){
                     connect_properties.adress = format!("{}:{}", *adress, *port).into();
-                    let style: u8 = ship_style.0 * 64 + ship_style.2 as u8 * 32 + ship_style.3 as u8* 16 + ship_style.4 as u8  * 8 + ship_style.5 as u8 * 4 + ship_style.6 as u8 * 2 + ship_style.1 as u8;
+                    
+                    let style: u8 = (*ship_style).0 * 64 + ship_style.2 as u8 * 32 + ship_style.3 as u8* 16 + ship_style.4 as u8  * 8 + ship_style.5 as u8 * 4 + ship_style.6 as u8 * 2 + ship_style.1 as u8;
                     settings.style = style;
-                    writer_init.send(InitClient);
+                    //writer_init.send(InitClient);
                     next_state.set(ClientState::InGame);
                 }
             }
             
     });
 
-    egui::Window::new("⛭SETTINGS⛭")
+    egui::Window::new("⛭SETTINGS⛭")// todo: add auto-generation settings and unfifcate "function"
         .open(&mut *settings_open)
         .title_bar(true)
         .collapsible(false)
@@ -436,7 +439,7 @@ pub fn egui_based_menu(
         .collapsible(false)
         .hscroll(false)
         .default_height(400.)
-        .vscroll(false)
+        .vscroll(true)
         .resizable(true)
         .constrain(true)
         .default_pos(center + egui::Vec2{x: -400., y: 0.})
@@ -457,12 +460,106 @@ pub fn egui_based_menu(
                 };
             });*/
             ui.label("Color");
-            ui.add(Slider::new(&mut settings.color[0], RangeInclusive::new(0., 3.)).prefix("R = "));
-            ui.add(Slider::new(&mut settings.color[1], RangeInclusive::new(0., 3.)).prefix("G = "));
-            ui.add(Slider::new(&mut settings.color[2], RangeInclusive::new(0., 3.)).prefix("B = "));
-            if settings.color[0].max(settings.color[1].max(settings.color[2])) < 0.3{
-                ui.add(egui::Label::new(egui::RichText::new("TOO DARK!").color(Color32::RED)));
-            };
+
+            let to_rgb = |angle: f32, lightness: f32| -> (u8, u8, u8){
+
+                    let hue = angle % 360. / 360.;
+                    let c = (1. - ((2. * lightness - 1.) as f32).abs());
+                    let x = c * (1. - ((hue * 6.) % 2. - 1.).abs());
+                    let m = lightness - c / 2.;
+                    let res = if hue < 1./6.{
+                        (c, x, 0.)
+                    } else if hue < 2./6.{
+                        (x, c, 0.)
+                    } else if hue < 3./6.{
+                        (0., c, x)
+                    } else if hue < 4./6.{
+                        (0., x, c)
+                    } else if hue < 5./6.{
+                        (x, 0., c)
+                    } else {
+                        (c, 0., x)
+                    };
+                    (
+                        ((res.0 + m) * 255.) as u8,
+                        ((res.1 + m) * 255.) as u8,
+                        ((res.2 + m) * 255.) as u8
+                    )
+                };
+            egui::Frame::canvas(ui.style()).show(ui, |ui| { // todo: add caching?
+                //ui.ctx().request_repaint();
+                let desired_size = ui.available_width() * egui::emath::vec2(0.5, 0.5);
+                let (id, rect) = ui.allocate_space(desired_size);
+                
+                let to_screen = egui::emath::RectTransform::from_to(egui::Rect::from_x_y_ranges(-1.0..=1.0, -1.0..=1.0), rect);
+
+                
+                let steps = 32;
+                let zero = egui::Pos2{x: 0., y: 0.};
+                let mut shapes = vec![];
+                
+                for i in 0..steps{
+                    let angle1 = (i as f32 / steps as f32) * 360.;
+                    let angle2 = ((i + 1) as f32 / steps as f32) * 360.;
+                    
+                    let color1 = to_rgb(angle1, 0.5);
+                    let color2 = to_rgb(angle2, 0.5);
+                    let vec1 = Vec2::from_angle(PI * 2. * (i as f32 / steps as f32));
+                    let vec2 = Vec2::from_angle(PI * 2. * ((i + 1) as f32 / steps as f32));
+                    shapes.push(egui::epaint::Shape::Mesh(egui::epaint::Mesh{ indices: vec![0, 1, 2], vertices: vec![
+                        egui::epaint::Vertex{pos: to_screen * zero, uv: zero, color: Color32::WHITE},
+                        egui::epaint::Vertex{pos: to_screen * egui::Pos2{x: vec1.x, y: vec1.y}, uv: zero, color: Color32::from_rgb(color1.0, color1.1, color1.2)},
+                        egui::epaint::Vertex{pos: to_screen * egui::Pos2{x: vec2.x, y: vec2.y}, uv: zero, color: Color32::from_rgb(color2.0, color2.1, color2.2)},
+                    ], ..default() }));
+                }
+                let response = ui.interact(rect, id, egui::Sense::drag());
+                if response.dragged(){
+                    //println!("{}", response.dragged());
+                    let pos = response.interact_pointer_pos();
+                    if pos.is_some(){
+                        //println!("{:?}", response.interact_pointer_pos().unwrap());
+                        let pos = pos.unwrap();
+                        let mut widget_vector = ((pos - rect.left_top()) * 2. - rect.size()) / rect.size();
+                        if widget_vector.length_sq() > 1.{
+                            widget_vector = widget_vector.normalized();
+                        }
+                        //println!("{:?}", response.interact_pointer_pos().unwrap());
+                        
+
+                        
+                        *color_selector_vector = widget_vector;
+                        
+                    }
+                }
+                
+                shapes.push(egui::epaint::Shape::Circle(CircleShape{ 
+                            center: to_screen * egui::pos2(color_selector_vector.x, color_selector_vector.y), 
+                            radius: 5., 
+                            fill: Color32::TRANSPARENT, 
+                            stroke: Stroke { width: 1., color: Color32::from_gray((color_selector_vector.length_sq() * 255.) as u8)} 
+                }));
+                
+
+                ui.painter().extend(shapes);
+                
+            });
+            ui.label("Glow");
+            if *saturation < 1.{
+                *saturation = 1.;
+            }
+            ui.add(Slider::new(&mut *saturation, RangeInclusive::new(1., 3.)));
+
+            let lightness  = (1. - color_selector_vector.length() * 0.5); // 1. -> 0.5
+            let c = to_rgb((color_selector_vector.angle() + 2. * PI) / PI * 180., lightness);
+            settings.color = [c.0 as f32 / 255. * *saturation, c.1 as f32 / 255. * *saturation, c.2 as f32 / 255. * *saturation];
+            
+
+            //ui.add(Slider::new(&mut settings.color[0], RangeInclusive::new(0., 3.)).prefix("R = ")); // todo: color circle
+            //ui.add(Slider::new(&mut settings.color[1], RangeInclusive::new(0., 3.)).prefix("G = "));
+            //ui.add(Slider::new(&mut settings.color[2], RangeInclusive::new(0., 3.)).prefix("B = "));
+            //if settings.color[0].max(settings.color[1].max(settings.color[2])) < 0.3{
+            //    ui.add(egui::Label::new(egui::RichText::new("TOO DARK!").color(Color32::RED)));
+            //};
             egui::ComboBox::from_label("Colormode")
                .selected_text(format!("{}", match ship_style.1 {false => {"Full"}, true => {"Aspects"}}))
                .show_ui(ui, |ui| {
@@ -470,12 +567,12 @@ pub fn egui_based_menu(
                    ui.selectable_value(&mut ship_style.1, true, "Aspects");
                    }).response.changed();
             egui::ComboBox::from_label("Base")
-               .selected_text(format!("{}", match ship_style.0 {0 => {"Cursor"}, 1 => {"Spear"}, 2 => {"Triangle"}, 3 => {"Arrow"}, _ => {"WAT?"}}))
+               .selected_text(format!("{}", match (*ship_style).0 {0 => {"Cursor"}, 1 => {"Spear"}, 2 => {"Triangle"}, 3 => {"Arrow"}, _ => {"WAT?"}}))
                .show_ui(ui, |ui| {
-                   ui.selectable_value(&mut ship_style.0, 0, "Cursor");
-                   ui.selectable_value(&mut ship_style.0, 1, "Spear");
-                   ui.selectable_value(&mut ship_style.0, 2, "Triangle");
-                   ui.selectable_value(&mut ship_style.0, 3, "Arrow");
+                   ui.selectable_value(&mut (*ship_style).0, 0, "Cursor");
+                   ui.selectable_value(&mut (*ship_style).0, 1, "Spear");
+                   ui.selectable_value(&mut (*ship_style).0, 2, "Triangle");
+                   ui.selectable_value(&mut (*ship_style).0, 3, "Arrow");
                    }).response.changed();
             ui.add(egui::Checkbox::new(&mut ship_style.2, "Lined")).changed();
             ui.add(egui::Checkbox::new(&mut ship_style.3, "Spear")).changed();
@@ -484,7 +581,7 @@ pub fn egui_based_menu(
             ui.add(egui::Checkbox::new(&mut ship_style.6, "Shards")).changed();
             
             let cd = clientsdata.get_mut_by_client_id(0);
-            let style: u8 = ship_style.0 * 64 + ship_style.2 as u8 * 32 + ship_style.3 as u8* 16 + ship_style.4 as u8  * 8 + ship_style.5 as u8 * 4 + ship_style.6 as u8 * 2 + ship_style.1 as u8;
+            let style: u8 = (*ship_style).0 * 64 + ship_style.2 as u8 * 32 + ship_style.3 as u8* 16 + ship_style.4 as u8  * 8 + ship_style.5 as u8 * 4 + ship_style.6 as u8 * 2 + ship_style.1 as u8;
             cd.style = style;
             cd.color = Color::from(settings.color);
             // CONVERT INTO STYLE ID
@@ -507,6 +604,7 @@ pub struct ShipPreviewCamera;
 
 const LABEL_RESOLUTION: u8 = 15;
 const MAX_LABEL_OFFSET: f32 = 0.8;
+
 
 
 
@@ -783,4 +881,236 @@ pub fn update_menu(
     
 }   
 
+pub fn tab_menu(
+    mut egui_context: EguiContexts,
+    mut settings: ResMut<GameSettings>,
+    keys: Res<Input<KeyCode>>,
+){
+    let ctx: &mut egui::Context = egui_context.ctx_mut();
+    let mut opened = keys.pressed(KeyCode::Tab);
+    let style = Style{ // todo: unificate styles and fonts!
+        visuals: Visuals{
+            window_rounding: Rounding::ZERO,
+            window_shadow: Shadow::NONE,
+            window_fill: Color32::from_rgba_unmultiplied(0, 0, 0, 230),
+            
+            
+            window_stroke: Stroke{
+                width: 1.,
+                color: Color32::from_rgba_unmultiplied(255, 255, 255, 255)
+            },
+            button_frame: false,
+            ..default()
+        },
+        animation_time: 0.,
+        ..default()
+    };
+    egui::Window::new("TAB")
+        .anchor(egui::Align2([Align::Center, Align::Center]), [0., 0.])
+        .open(&mut opened)
+        //.constrain(true)
+        .resizable(false)
+        //.default_height(100.0)
+        .default_width(500.)
+        
+        .title_bar(false)
+        .collapsible(false)
+        
+        .vscroll(false)
+        .hscroll(false)
+        
+        //.fixed_size(bevy_egui::egui::Vec2{x: 100., y: 100.})
+        .show(ctx, |ui|{
+            ui.set_style(style.clone());
+            
+            ui.vertical_centered(|ui|{
+                let mut newstyle = (*ctx.style()).clone();
+                newstyle.text_styles = [
+                    (egui::TextStyle::Button, FontId::new(34.0, egui::FontFamily::Monospace)),
+                    (egui::TextStyle::Body, FontId::new(34.0, egui::FontFamily::Monospace))
+                    ].into();
+                ui.style_mut().text_styles = newstyle.text_styles;
+                ui.label("TAB ITEM 1");
+                ui.label("TAB ITEM 2");
+                ui.label("TAB ITEM 3");
+                ui.label("TAB ITEM 4");
+                ui.label("TAB ITEM 5");
+            });
+    });
+}
 
+pub fn esc_menu(
+    mut esc_open: Local<bool>,
+    mut settings_open: Local<bool>,
+    mut egui_context: EguiContexts,
+    mut settings: ResMut<GameSettings>,
+    mut next_state: ResMut<NextState<ClientState>>,
+    mut writer: EventWriter<ApplyCameraSettings>,
+    keys: Res<Input<KeyCode>>,
+){
+    let ctx: &mut egui::Context = egui_context.ctx_mut();
+
+    if keys.just_pressed(KeyCode::Escape){
+        if *esc_open{
+            if *settings_open{
+                *settings_open = false;
+            } else {
+                *esc_open = false;
+            }
+        } else {
+            if *settings_open{
+                *settings_open = false;
+                *esc_open = true;
+            } else {
+                *esc_open = true;
+            }
+        }
+    }
+
+
+
+
+
+    let style = Style{
+        visuals: Visuals{
+            window_rounding: Rounding::ZERO,
+            window_shadow: Shadow::NONE,
+            window_fill: Color32::from_rgba_unmultiplied(0, 0, 0, 230),
+            
+            
+            window_stroke: Stroke{
+                width: 1.,
+                color: Color32::from_rgba_unmultiplied(255, 255, 255, 255)
+            },
+            button_frame: false,
+            ..default()
+        },
+        animation_time: 0.,
+        ..default()
+    };
+
+    ctx.set_style(style.clone());
+
+
+    egui::Window::new("MENU")
+        .anchor(egui::Align2([Align::Center, Align::Center]), [0., 0.])
+        .open(&mut esc_open.clone())
+        //.constrain(true)
+        .resizable(false)
+        //.default_height(100.0)
+        .default_width(100.)
+        
+        .title_bar(false)
+        .collapsible(false)
+        
+        .vscroll(false)
+        .hscroll(false)
+        
+        //.fixed_size(bevy_egui::egui::Vec2{x: 100., y: 100.})
+        .show(ctx, |ui|{
+            ui.set_style(style.clone());
+            
+            ui.vertical_centered(|ui|{
+                let mut newstyle = (*ctx.style()).clone();
+                newstyle.text_styles = [
+                    (egui::TextStyle::Button, FontId::new(34.0, egui::FontFamily::Monospace)),
+                    (egui::TextStyle::Body, FontId::new(34.0, egui::FontFamily::Monospace))
+                    ].into();
+                ui.style_mut().text_styles = newstyle.text_styles;
+                let continue_btn = ui.add_sized(     [300., 40.], egui::Button::new("CONTINUE")).clicked();
+                let settings_btn = ui.add_sized( [300., 40.], egui::Button::new("SETTINGS")).clicked();
+                let exit_btn = ui.add_sized(     [300., 40.], egui::Button::new("MENU")).clicked();
+                if continue_btn{
+                    *settings_open = false;
+                    *esc_open = false;
+                }
+                if settings_btn{
+                    *esc_open = false;
+                    *settings_open = true;
+                }
+                if exit_btn{
+                    next_state.set(ClientState::Menu);
+                }
+            });
+    });
+
+
+    let center = ctx.screen_rect().center();
+    let prev_open = settings_open.clone();
+    egui::Window::new("⛭SETTINGS⛭") // todo: add auto-generation settings and unfifcate "function"
+        .open(&mut *settings_open)
+        .title_bar(true)
+        .collapsible(false)
+        .hscroll(true)
+        .vscroll(true)
+        .resizable(true)
+        .constrain(true)
+        .default_pos(center)
+        .show(ctx, |ui| {
+            ui.set_style(style.clone());
+            let mut newstyle = (*ctx.style()).clone();
+            newstyle.text_styles = [
+                    (egui::TextStyle::Body, FontId::new(20.0, egui::FontFamily::Monospace)),
+                    (egui::TextStyle::Button, FontId::new(20.0, egui::FontFamily::Monospace))
+            ].into();
+            ui.style_mut().text_styles = newstyle.text_styles;
+            egui::CollapsingHeader::new("⏺ [ GRAPHICS SETTINGS ]")
+                .default_open(true)
+                .show(ui, |ui| {
+                    let prev_dd = settings.deband_dither;
+                    egui::ComboBox::from_label("Deband dither")
+                        .selected_text(format!("{}", match settings.deband_dither { // XD
+                            DebandDither::Enabled => {"Enabled"},
+                            DebandDither::Disabled => {"Disabled"}
+                        }))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut settings.deband_dither, DebandDither::Enabled, "Enabled");
+                            ui.selectable_value(&mut settings.deband_dither, DebandDither::Disabled, "Disabled");
+                        }
+                    );
+                    let prev_tm = settings.tonemapping;
+                    egui::ComboBox::from_label("Tonemapping")
+                        .selected_text(format!("{:?}", settings.tonemapping))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut settings.tonemapping, Tonemapping::None, "None");
+                            ui.selectable_value(&mut settings.tonemapping, Tonemapping::AcesFitted, "AcesFitted");
+                            ui.selectable_value(&mut settings.tonemapping, Tonemapping::AgX, "AgX");
+                            ui.selectable_value(&mut settings.tonemapping, Tonemapping::BlenderFilmic, "BlenderFilmic");
+                            ui.selectable_value(&mut settings.tonemapping, Tonemapping::Reinhard, "Reinhard");
+                            ui.selectable_value(&mut settings.tonemapping, Tonemapping::ReinhardLuminance, "ReinhardLuminance");
+                            ui.selectable_value(&mut settings.tonemapping, Tonemapping::SomewhatBoringDisplayTransform, "SomewhatBoringDisplayTransform");
+                            ui.selectable_value(&mut settings.tonemapping, Tonemapping::TonyMcMapface, "TonyMcMapface");
+                        }
+                    );
+                    let prev_cm = settings.composite_mode;
+                    egui::ComboBox::from_label("Composite Mode")
+                        .selected_text(format!("{}", match settings.composite_mode { // XD
+                            BloomCompositeMode::Additive => {"Additive"},
+                            BloomCompositeMode::EnergyConserving => {"EnergyConserving"}
+                        }))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut settings.composite_mode, BloomCompositeMode::Additive, "Additive");
+                            ui.selectable_value(&mut settings.composite_mode, BloomCompositeMode::EnergyConserving, "EnergyConserving");
+                        }
+                    );
+                    let bi = ui.add(egui::Slider::new(&mut settings.bloom_intensity , 0.0..= 1.0).text("Bloom intensity"));
+                    let lfb = ui.add(egui::Slider::new(&mut settings.low_frequency_boost , 0.0..= 1.0).text("Bloom low frequency boost"));
+                    let lfbc = ui.add(egui::Slider::new(&mut settings.low_frequency_boost_curvature , 0.0..= 1.0).text("Bloom low frequency boost curvature"));
+                    let hpf = ui.add(egui::Slider::new(&mut settings.high_pass_frequency , 0.0..= 1.0).text("Bloom high pass frequency"));
+                    let th = ui.add(egui::Slider::new(&mut settings.threshold, 0.0..= 1.0).text("Bloom threshold"));
+                    let ths = ui.add(egui::Slider::new(&mut settings.threshold_softness , 0.0..= 1.0).text("Bloom threshold softness"));
+                    if prev_dd != settings.deband_dither {writer.send(ApplyCameraSettings::DebandDither)};
+                    if prev_tm != settings.tonemapping {writer.send(ApplyCameraSettings::Tonemapping)};
+                    if prev_cm != settings.composite_mode {writer.send(ApplyCameraSettings::BloomCompositeMode)};
+                    if bi.changed(){writer.send(ApplyCameraSettings::Intensity)};
+                    if lfb.changed(){writer.send(ApplyCameraSettings::LowFrequencyBoost)};
+                    if lfbc.changed(){writer.send(ApplyCameraSettings::LowFrequencyBoostCurvature)};
+                    if hpf.changed(){writer.send(ApplyCameraSettings::HighPassFrequency)};
+                    if th.changed(){writer.send(ApplyCameraSettings::Threshold)};
+                    if ths.changed(){writer.send(ApplyCameraSettings::ThresholdSoftness)};
+            });
+    });
+    if prev_open != *settings_open{ // handle for closing trough " X " in right up corner of window
+        *esc_open = true;
+    }
+}

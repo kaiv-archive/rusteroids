@@ -52,8 +52,8 @@ fn main(){
     app.insert_resource(LoadedChunks{chunks: vec![]});
     app.insert_resource(GlobalConfig{
         map_size_chunks: Vec2{
-            x: 2.,
-            y: 2.
+            x: 1.,
+            y: 1.
         },
         single_chunk_size: Vec2{
             x: 1000.,
@@ -324,7 +324,7 @@ fn send_message_system(
             chunk_to_objects.insert((chunk_pos.x as u32, chunk_pos.y as u32), vec![object_data]);
         }
         let is_player = match object.object_type{
-            ObjectType::Ship { style: _, color: _, shields: _, hp: _, death_time: _ } => {true},
+            ObjectType::Ship { style: _, color: _, shields: _, hp: _} => {true},
             _ => {false}
         };
         if objects_distribution.data.contains_key(&key){
@@ -358,10 +358,10 @@ fn send_message_system(
                         if objects_in_chunk.is_some() && !included_chunks.contains(&(real_chunk.x as u32, real_chunk.y as u32)){
                             for object_data in objects_in_chunk.unwrap().iter(){
                                 match object_data.object.object_type{
-                                    ObjectType::Ship { style: _, color: _, shields: _, hp: _, death_time } => { // todo: invisibility power up
-                                        if death_time == 0. || object_data.object.id == iterated_ship.id{
-                                            personalised_data.push(object_data.clone());
-                                        }
+                                    ObjectType::Ship { style: _, color: _, shields: _, hp: _ } => { // todo: states
+                                        
+                                        personalised_data.push(object_data.clone());
+                                        
                                     },
                                     _ => {
                                         personalised_data.push(object_data.clone());

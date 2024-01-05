@@ -1,11 +1,22 @@
 use std::{collections::HashMap, time::Duration};
-use bevy::{prelude::{Component, Resource, Event, Vec2, Vec3, Transform, Entity, Quat}, render::color::Color};
+use bevy::{prelude::{Component, Resource, Event, Vec2, Vec3, Transform, Entity, Quat}, render::color::Color, ecs::schedule::States};
 use bevy_rapier2d::prelude::Velocity;
 use bevy_renet::renet::{ChannelConfig, SendType, ConnectionConfig};
 use rand::{SeedableRng, Rng};
 use rand_chacha::ChaCha8Rng;
 use serde::{Serialize, Deserialize};
 
+#[derive(Resource)]
+pub struct ConnectProperties{
+    pub adress: String
+}
+
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, States)]
+pub enum ClientState {
+    #[default]
+    Menu,
+    InGame
+}
 
 #[derive(Serialize, Deserialize)]
 pub enum Message{
@@ -68,7 +79,10 @@ pub struct MyData{
 pub struct ClientsData{
     binds: HashMap<u64, u64>, // object_id -> client_id
     data: HashMap<u64, ClientData> // client_id -> data
-} 
+}
+
+
+
 
 #[derive(Serialize, Deserialize)]
 #[derive(Clone)]
@@ -285,6 +299,7 @@ pub enum GameRenderLayers{
 }
 
 
+
 #[derive(Serialize, Deserialize)]
 #[derive (Component, Clone, Copy)]
 pub struct Object{
@@ -314,6 +329,12 @@ pub struct Asteroid;
 #[derive (Component)]
 pub struct Ship;
 
+#[derive(Component)]
+pub struct PowerUPImage;
+
+#[derive(Component)]
+pub struct PowerUPCube;
+
 
 #[derive (Component)]
 pub struct Debug;
@@ -327,19 +348,26 @@ pub struct PuppetPlayer;
 pub enum ObjectType{
     Asteroid{seed: u64, hp: u8},
     Bullet{previous_position: Transform, spawn_time: f32, owner: u64},
-    Ship{style: u8, color: Color, shields: f32, hp: f32, death_time: f32},
-    PickUP{pickup_type: PickUPType},
+    Ship{style: u8, color: Color, shields: f32, hp: f32},
+    PickUP{pickup_type: PowerUPType},
 }
 
 #[derive(Serialize, Deserialize)]
 #[derive (Clone, Copy)]
-pub enum PickUPType{
-    Heal,
-    DoubleDamage,
-    Haste,
-    SuperShield,
-    Invisibility,
-    Mine,
+pub enum PowerUPType{
+    Repair, // +--
+    DoubleDamage, // +--
+    Haste, //+--
+    SuperShield, //+--
+    Invisibility, //+--
+}
+
+
+#[derive(Serialize, Deserialize)]
+pub enum ShipState{
+    Regular{spawn_time: f32},
+    Dash{start_time: f32},
+    Dead{death_time: f32},
 }
 
 

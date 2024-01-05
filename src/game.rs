@@ -61,7 +61,7 @@ pub fn init_pixel_camera(app: &mut App){
 }
 
 #[allow(dead_code)]
-pub fn setup_pixel_camera(
+fn setup_pixel_camera(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
 ) {
@@ -383,12 +383,11 @@ pub fn spawn_asteroid(
             shadow_ind.push(shadow_vec.len() as u32 - 1);
         }
     }
-    let size = get_asteroid_size(seed);
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec.clone());
     shadow_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, shadow_vec.clone());
     mesh.set_indices(Some(Indices::U32(ind.clone())));
     shadow_mesh.set_indices(Some(Indices::U32(shadow_ind.clone())));
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![(Color::WHITE * 20.).as_rgba_f32(); vec.len()]);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![(Color::WHITE * 2.).as_rgba_f32(); vec.len()]);
     shadow_mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![Color::BLACK.as_rgba_f32(); shadow_vec.len()]);
     
     let (vertices, indices) = prepate_for_polyline(vec, ind);
@@ -542,7 +541,7 @@ pub fn spawn_ship(
             Ship,
             Object{
                 id: player_data.object_id,
-                object_type: ObjectType::Ship { style: target_style, color: player_data.color, shields: cfg.player_shields, hp: cfg.player_hp, death_time: 0. }
+                object_type: ObjectType::Ship { style: target_style, color: player_data.color, shields: cfg.player_shields, hp: cfg.player_hp }
             },
         )).insert(MaterialMesh2dBundle { //MESH
                 mesh: Mesh2dHandle(meshes.add(mesh)),
@@ -563,6 +562,95 @@ pub fn spawn_ship(
         ).id()
     };
     return entity
+}
+
+
+pub fn spawn_powerup(
+    powerup_type: PowerUPType,
+    pos: Vec3,
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<ColorMaterial>>,
+    asset_server: &Res<AssetServer>,
+){
+    let mut mesh = Mesh::new(PrimitiveTopology::LineList);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![
+        Vec3{x: 1., y: 1., z: 1.},
+        Vec3{x: 1., y: 1., z:-1.},
+        Vec3{x: 1., y:-1., z: 1.},
+        Vec3{x: 1., y:-1., z:-1.},
+        Vec3{x:-1., y: 1., z: 1.},
+        Vec3{x:-1., y: 1., z:-1.},
+        Vec3{x:-1., y:-1., z: 1.},
+        Vec3{x:-1., y:-1., z:-1.},
+    ]);
+    mesh.set_indices(Some(Indices::U32(vec![
+        0, 1,
+        0, 2,
+        1, 3,
+        2, 3,
+        4, 5,
+        4, 6,
+        5, 7,
+        6, 7,
+        0, 4,
+        1, 5,
+        2, 6,
+        3, 7
+        ])));
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![(Color::from([0.05, 0.05, 0.05, 1.])).as_rgba_f32(); 8]);
+
+    let powerup_box = commands.spawn((
+        MaterialMesh2dBundle { //MESH
+            mesh: Mesh2dHandle(meshes.add(mesh)),
+            transform: Transform::from_xyz(0., 0., 0.).with_scale(Vec3::splat(5.)),
+            material: materials.add(ColorMaterial::default()), //ColorMaterial::from(texture_handle)
+            ..default()
+        },
+        PowerUPCube
+    )).id();
+
+    let image_path = match powerup_type{
+        PowerUPType::DoubleDamage => {"powerups/doubledamage.png"},
+        PowerUPType::Haste => {"powerups/haste.png"}
+        PowerUPType::Repair => {"powerups/repair.png"},
+        PowerUPType::SuperShield => {"powerups/supershield.png"},
+        PowerUPType::Invisibility => {"powerups/invisibility.png"},
+    };
+    
+
+    let powerup_image = commands.spawn((
+        SpriteBundle {
+            texture: asset_server.load(image_path),
+            transform: Transform::from_xyz(0., 0., 0.01).with_scale(Vec3::splat(1.2)),
+            ..default()
+        },
+        PowerUPImage
+    )).id();
+    commands.spawn((
+        Object{
+            id: 0,
+            object_type: ObjectType::PickUP { pickup_type: PowerUPType::DoubleDamage },
+        },
+        VisibilityBundle::default(),
+        TransformBundle::default()
+    )).insert(Transform::from_translation(pos).with_scale(Vec3::splat(1.))).add_child(powerup_image).add_child(powerup_box);
+}
+
+pub fn update_powerups_animation(
+    mut images_q: Query<&mut Transform, (With<PowerUPImage>, Without<Object>, Without<PowerUPCube>)>,
+    mut cube_q: Query<&mut Transform, (With<PowerUPCube>, Without<Object>, Without<PowerUPImage>)>,
+    time: Res<Time>,
+){
+    for mut cube in cube_q.iter_mut(){
+        cube.rotate_local_x(time.delta_seconds() * 0.5);
+        cube.rotate_local_y(-time.delta_seconds() * 1.);
+        cube.rotate_local_z(time.delta_seconds() * 2.);
+        cube.scale = Vec3::splat(5. + ((time.elapsed_seconds() * 3.).sin() + 1.) * 0.5);
+    }
+    for mut image in images_q.iter_mut(){
+        image.rotate_local_y(time.delta_seconds() * 2.);
+    }
 }
 
 pub fn debug_chunk_render(
@@ -657,7 +745,6 @@ pub fn snap_objects(
     for mut transform in objects.iter_mut(){
         if transform.translation.x < 0.{
             transform.translation.x = (transform.translation.x + xsize) % xsize;
-
         } else {
             transform.translation.x = transform.translation.x % xsize;
         }
@@ -755,6 +842,7 @@ pub fn update_chunks_around(
             //println!("COND3 {}", puppet_position_chunk == puppet.binded_chunk.pos);
             //println!("COND4 {} {:?}", !existing_puppets.contains(&key), key);
             //println!("COND5 {}", map.pos_to_real_chunk(&puppet_transform.translation) == map.pos_to_chunk(&real_objects.get(&puppet_object.id).unwrap().0.translation));
+            
             // DESPAWN
             commands.entity(puppet_entity).despawn_recursive();
         }
@@ -800,58 +888,8 @@ pub fn update_chunks_around(
                                     Name::new("BULLET PUPPET"),
                                     )
                                 );
-                                /*
-                                let mut mesh = Mesh::new(PrimitiveTopology::LineList);
-                                mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0., 0., 0.,], [0., -50., 0.,]]);
-                                mesh.set_indices(Some(Indices::U32(vec![0, 1])));
-                                mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![Color::Rgba { red: 3., green: 3., blue: 3., alpha: 3. }.as_rgba_f32() ; 2]);
-                                let vel = transform.up() * 1000.;
-                                let vel = Vec2 { x: vel.x, y: vel.y };
-                                //let vel = Vec2{x: 0.0, y: 0.0};
-
-                                commands.spawn((RigidBody::Dynamic,
-                                //TransformBundle::from(Transform::from_xyz(0.0, 5.0, 0.0)), // SPAWN POSITION
-                                Velocity {              // VELOCITY
-                                    linvel: vel,
-                                    angvel: 0.0
-                                },
-                                Friction{ // DISABLE ROTATING WHET COLLIDING TO ANYTHING ( MAYBE REPLACE IT ONLY FOR WALLS FOR FUN )
-                                    coefficient: 0.0,
-                                    combine_rule: CoefficientCombineRule::Min
-                                },
-                                GravityScale(0.0),
-                                Sleeping::disabled(),
-                                Ccd::enabled(),
-                                //Collider::cuboid(2., 30.),
-                                Restitution {
-                                    coefficient: 1.,
-                                    combine_rule: CoefficientCombineRule::Multiply,
-                                },
-                                Name::new("Bullet"),
-                                //Sensor,
-                                ActiveEvents::COLLISION_EVENTS,
-                                Object{
-                                    id: object.id,
-                                    object_type: ObjectType::Bullet { previous_position, spawn_time, owner }
-                                },
-                                Puppet {
-                                    id: object.id,
-                                    binded_chunk: Chunk {
-                                        pos: *chunk
-                                    }
-                                },
-                                Bullet,
-                                ))
-                                .insert(MaterialMesh2dBundle {
-                                    mesh: Mesh2dHandle(meshes.add(mesh.clone())),
-                                    material: materials.add(ColorMaterial::default()),
-                                    transform: transform.with_translation(pos),
-                                    ..default()}
-                                )
-                                .insert(transform.with_translation(pos));*/
-
                             },
-                            ObjectType::Ship { style, color, shields, hp, death_time } => {
+                            ObjectType::Ship { style, color, shields, hp } => {
                                 let player_data = clients_data.get_option_by_object_id(object.id);
                                 if player_data.is_some(){
                                     let player_data = player_data.unwrap();
@@ -869,7 +907,7 @@ pub fn update_chunks_around(
                                         },
                                         Object{
                                             id: object.id,
-                                            object_type: ObjectType::Ship { style, color, shields, hp, death_time }
+                                            object_type: ObjectType::Ship { style, color, shields, hp }
                                         },
                                     ));
                                 }
@@ -952,8 +990,8 @@ pub fn asteroids_refiller(
         let seed = random::<u64>();
         let pos = get_pos_to_spawn(&mut objects_distribution, &cfg).extend(0.);
         let velocity = Velocity{
-            linvel: (Vec2::from(random::<(f32, f32)>()) - Vec2::ONE * 0.5) * 300.,
-            angvel: (random::<f32>() - 0.5) * 5.
+            linvel: (Vec2::from(random::<(f32, f32)>()) - Vec2::ONE * 0.5) * 0.,// todo: 300.
+            angvel: (random::<f32>() - 0.5) * 5. 
         };
         spawn_asteroid(seed, velocity, Transform::from_translation(pos), &mut meshes, &mut materials, &mut commands, cfg.new_id(), cfg.get_asteroid_hp(seed));
     }
@@ -1095,13 +1133,13 @@ pub fn get_pos_to_spawn( // so unpotimized!!! ~O(2n + m)  (make fast version) ti
             return dot;
         } else if !around.is_empty(){
             let minimal = around.keys().min().unwrap();
-            let chunks_data = without.get(minimal).unwrap();
+            let chunks_data = around.get(minimal).unwrap();
             let chunk_data: &((u32, u32), Vec<Vec2>) = chunks_data.get(rng.gen_range(0..chunks_data.len())).unwrap();
             let dot = find_dot(chunk_data);
             return dot;
         } else if !with.is_empty(){
             let minimal = with.keys().min().unwrap();
-            let chunks_data = without.get(minimal).unwrap();
+            let chunks_data = with.get(minimal).unwrap();
             let chunk_data: &((u32, u32), Vec<Vec2>) = chunks_data.get(rng.gen_range(0..chunks_data.len())).unwrap();
             let dot = find_dot(chunk_data);
             return dot;
@@ -1213,42 +1251,48 @@ pub fn check_bullet_collisions_and_lifetime(
                                             );
                                         }
                                     };
-                                    return true
+                                    return false
                                 }
-                                ObjectType::Ship { style, color, mut shields, mut hp, death_time} => {
+                                ObjectType::Ship { style, color, mut shields, mut hp} => {
                                     if !(object.id == owner && time.elapsed().as_secs_f32() - spawn_time < 1.){ // check ownership, after one second bullet will damage owner
+                                       // println!("<- {} hp {} sh {}", object.id, hp, shields);
                                         if shields > 0.{
                                             shields -= cfg.bullet_damage;
+                                            //println!("s {}", shields);
                                             shields = shields.clamp(0., shields.abs());
+                                            //println!("s {}", shields);
                                         } else {                                            
                                             hp -= cfg.bullet_damage;
+                                            //println!("h {}", hp);
                                             hp = hp.clamp(0., hp.abs()); // :D
+                                            //println!("h {}", hp);
                                         }
                                         
                                         if hp <= 0. {
-                                            object.object_type = ObjectType::Ship { style , color,  shields, hp, death_time: time.elapsed().as_secs_f32() };
-
+                                            let mut object_copy = object.clone();
+                                            object_copy.object_type = ObjectType::Ship { style , color,  shields, hp };
                                             commands.entity(entity).insert((
                                                 Visibility::Hidden,
                                                 ColliderDisabled,
                                                 Velocity::zero(),
-                                                object.clone()
+                                                object_copy
                                             ));
 
                                         } else {
-                                            object.object_type = ObjectType::Ship { style , color,  shields, hp, death_time };
-                                            commands.entity(entity).insert(object.clone());
+                                            let mut object_copy = object.clone();
+                                            object_copy.object_type = ObjectType::Ship { style , color,  shields, hp };
+                                            commands.entity(entity).insert(object_copy);
+                                            //println!("-> {} hp {} sh {}", object.id, hp, shields);
                                         }
-                                        println!("hp {} sh {}", hp, shields);
                                         commands.entity(bullet_entity).despawn_recursive();
-                                        return true
+                                        return false
                                     }
                                     
                                 }
                                 _ => {}
                             }
                         }
-                        false // Return `false` instead if we want to stop searching for other hits.
+                        true // Return `false` instead if we want to stop searching for other hits.
                 });
                 // UPDATE
                 //println!("pos {} -> {}", previous_position.translation.truncate(), transform.translation.truncate());
@@ -1257,7 +1301,6 @@ pub fn check_bullet_collisions_and_lifetime(
                     spawn_time,
                     owner
                 };
-                
                 //LIFETIME
                 if time.elapsed().as_secs_f32() - spawn_time > cfg.bullet_lifetime_secs{
                     commands.entity(bullet_entity).despawn_recursive();
@@ -1275,7 +1318,7 @@ pub fn check_ship_collisions_and_lifetime(
     time: Res<Time>
 ){
     for (ship_entity, mut object) in query_ship.iter_mut() { // check if respawn needed
-        match object.object_type{
+        /*match object.object_type{
             ObjectType::Ship { style, color, shields: _, hp: _, death_time } => {
                 if time.elapsed().as_secs_f32() - death_time > cfg.respawn_time_secs {
                     let mut object_copy = object.clone();
@@ -1288,7 +1331,7 @@ pub fn check_ship_collisions_and_lifetime(
                 }
             },
             _ => {}
-        }
+        }*/
     }
 }
 

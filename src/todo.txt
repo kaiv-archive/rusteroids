@@ -39,7 +39,7 @@ SHOP
 
 
 VFX
-    ПОДЛОЖКА ЧЕРНАЯ ПОД АСТЕРОИДЫ И line-based ИГРОКА (ЧТО-БЫ ЗВЕЗДЫ ЗА BG НЕ ПРОСВЕЧИВАЛИ)
+    ПОДЛОЖКА ЧЕРНАЯ ПОД АСТЕРОИДЫ + И line-based ИГРОКА (ЧТО-БЫ ЗВЕЗДЫ ЗА BG НЕ ПРОСВЕЧИВАЛИ)
     PARTICLES
     BACKGROUND + 
     ??? RANDOM ASTEROID COLORS
