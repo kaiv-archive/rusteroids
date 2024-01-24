@@ -1205,11 +1205,13 @@ pub fn check_bullet_collisions_and_lifetime(
                                     commands.entity(bullet_entity).despawn_recursive();
                                     if hp <= 0{
                                         commands.entity(entity).despawn_recursive();
+                                        
                                         /*
                                             |
                                             v
                                         o <- O -> o
                                         SPLIT ASTEROID
+                                        todo: fix velocity
                                         */
         
                                         let current_size = get_asteroid_size(seed);
@@ -1255,16 +1257,15 @@ pub fn check_bullet_collisions_and_lifetime(
                                 }
                                 ObjectType::Ship { style, color, mut shields, mut hp} => {
                                     if !(object.id == owner && time.elapsed().as_secs_f32() - spawn_time < 1.){ // check ownership, after one second bullet will damage owner
-                                       // println!("<- {} hp {} sh {}", object.id, hp, shields);
                                         if shields > 0.{
                                             shields -= cfg.bullet_damage;
                                             //println!("s {}", shields);
-                                            shields = shields.clamp(0., shields.abs());
+                                            shields = if shields > 0. {shields} else {0.};
                                             //println!("s {}", shields);
                                         } else {                                            
                                             hp -= cfg.bullet_damage;
                                             //println!("h {}", hp);
-                                            hp = hp.clamp(0., hp.abs()); // :D
+                                            hp = if hp > 0. {hp} else {0.};
                                             //println!("h {}", hp);
                                         }
                                         
