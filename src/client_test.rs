@@ -73,11 +73,12 @@ fn setup(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut cfg: ResMut<GlobalConfig>,
     mut window: Query<&mut Window>,
+    time: Res<Time>
 ){
     window.single_mut().resolution.set(1280., 720.);
     
     let player_data = ClientData::for_spawn(0, Color::WHITE, cfg.new_id());
-    let e = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &player_data, &mut cfg);
+    let e = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &player_data, &mut cfg, &time);
 
     commands.entity(e).insert(CameraFollow);
     let mut seed = rand::random();

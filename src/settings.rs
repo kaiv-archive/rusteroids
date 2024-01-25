@@ -61,7 +61,7 @@ impl Default for GameSettings {
             beams_path_fov: 1.,
             beams_path_offset: 5.,
             beams_speed: 0.6,
-            beams_number: 0,
+            beams_number: 100,
             beams_randomcolor: true, // ADD IMPLEMENTATION!!
             beams_coloroffset_r: 0.1, // ADD IMPLEMENTATION!!
             beams_coloroffset_g: 0.1, // ADD IMPLEMENTATION!!

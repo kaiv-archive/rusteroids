@@ -213,7 +213,7 @@ fn handle_inputs_system(
     if keys.pressed(KeyCode::S){inp.down = true}
     if keys.pressed(KeyCode::A){inp.left = true}
     if keys.pressed(KeyCode::D){inp.right = true}
-
+    if keys.pressed(KeyCode::ShiftLeft){inp.dash = true}
     if keys.pressed(KeyCode::Space){inp.shoot = true}
     
     
@@ -248,6 +248,9 @@ fn camera_follow(
     camera_translation.translation = player_data.unwrap().translation;
 }
 
+#[derive(Component)]
+struct DeathLabel;
+
 fn receive_message_system(
     mut client: ResMut<RenetClient>,
     mut cfg: ResMut<GlobalConfig>,
@@ -262,6 +265,9 @@ fn receive_message_system(
     //mut followed_q: Query<(Entity, &Object), With<CameraFollow>>,
     mut loaded_chunks: ResMut<LoadedChunks>,
     asset_server: Res<AssetServer>,
+    time: Res<Time>,
+    death_label_q: Query<Entity, With<DeathLabel>>,
+    mut is_dead: Local<(bool, bool, Vec3)>, // first is current, second is previous val, third is pos
 ){
     if client.is_disconnected(){
         next_state.set(ClientState::Menu);
@@ -296,8 +302,23 @@ fn receive_message_system(
                 transform.translation = object_data.translation;
                 transform.rotation = object_data.rotation;
                 match object_data.object.object_type{ // update properties
-                    ObjectType::Ship{ style: _, color: _, shields: _, hp: _ } => {
+                    ObjectType::Ship{ style: _, color: _, shields: _, hp: _} => {
                         commands.entity(e).insert(object_data.object);
+                        let states_and_statuses = object_data.states_and_statuses.clone().unwrap();
+                        if object_data.object.id == local_clients_data.get_by_client_id(transport.client_id()).object_id{
+                            match states_and_statuses.0 {
+                                ShipState::Dead { death_time: _ } => {
+                                    (*is_dead).0 = true;
+                                    (*is_dead).2 = object_data.translation;
+                                    commands.entity(e).insert(Visibility::Hidden);
+                                }
+                                _ => {
+                                    (*is_dead).0 = false;
+                                    commands.entity(e).insert(Visibility::Visible);
+                                }
+                            }
+                        }
+                        commands.entity(e).insert(states_and_statuses);
                     }
                     _ => {}
                 }
@@ -330,14 +351,13 @@ fn receive_message_system(
                         );
                         Some((e, object_data.object.id))
                     },
-                    ObjectType::Ship { style, color, shields, hp } => {
+                    ObjectType::Ship { style, color, shields, hp} => {
                         let client_op = local_clients_data.get_option_by_object_id(object_data.object.id);
                         if client_op.is_some(){
                             let clientdata = client_op.unwrap();
                             let name = &clientdata.name;
-                            let e = spawn_ship(false, &mut meshes, &mut materials, &mut commands, clientdata, &mut cfg);
+                            let e = spawn_ship(false, &mut meshes, &mut materials, &mut commands, clientdata, &mut cfg, &time);
                             //println!("SPAWNED SHIP FOR {} WITH ID {} -> E {:?}", client.client_id, client.object_id, e);
-                            println!("spawn {}, {}", hp, shields);
                             commands.entity(e).insert((
                                 Name::new(format!("Player {}", name)),
                                 Object{
@@ -376,8 +396,30 @@ fn receive_message_system(
             }
         }
     }
-        
-    
+
+    if (*is_dead).0 != (*is_dead).1 { // spawn or despawn
+        if (*is_dead).0 {
+            let font = asset_server.load("../assets/fonts/VecTerminus12Medium.otf");
+            let text_style = TextStyle {
+                font: font.clone(),
+                font_size: 26.0,
+                color: Color::ORANGE_RED,
+            };
+            commands.spawn((
+                Text2dBundle{
+                    text: Text::from_section("U ARE DEAD! :D", text_style),
+                    transform: Transform::from_translation(is_dead.2.truncate().extend(100.)),
+                    ..default()
+                },
+                DeathLabel
+            ));
+        } else {
+            for e in death_label_q.iter(){
+                commands.entity(e).despawn();
+            }
+        }
+    }
+    (*is_dead).1 = (*is_dead).0;
 
     while let Some(message) = client.receive_message(ServerChannel::Garanteed) {
         let msg: Message = bincode::deserialize::<Message>(&message).unwrap();
@@ -709,7 +751,7 @@ fn starfield_update(
         }
     }
     *prev_pos = player_transform.translation.truncate();
-
+    // todo: add stars back
     let curr_stars_count = star_q.into_iter().len();
     let mut rng = rand::thread_rng();
     let texture_path = [
@@ -776,8 +818,8 @@ struct ShipLabel{entity_id: u64}
 fn ship_labels( // todo: maybe add it as childs to ships? // add handle for every puppet
     cfg: Res<GlobalConfig>,
     mut commands: Commands,
-    ships_q: Query<(&Object, &mut Transform, Entity), (With<Ship>, Without<ShipLabel>, Without<Puppet>)>,
-    ships_puppets_q: Query<(&Object, &mut Transform, Entity), (With<Ship>, Without<ShipLabel>, With<Puppet>)>,
+    ships_q: Query<(&Object, &mut Transform, &Visibility, Entity), (With<Ship>, Without<ShipLabel>, Without<Puppet>)>,
+    ships_puppets_q: Query<(&Object, &mut Transform, &Visibility, Entity), (With<Ship>, Without<ShipLabel>, With<Puppet>)>,
     mut labels_q: Query<(&ShipLabel, &mut Transform, &mut Text, Entity), (With<ShipLabel>, Without<Ship>)>,  
     asset_server: Res<AssetServer>, 
     clients_data: Res<ClientsData>,
@@ -806,13 +848,16 @@ fn ship_labels( // todo: maybe add it as childs to ships? // add handle for ever
     let mut used_labels = HashSet::new();
     // iterating trough ships, collect data about name, hp and shields; and after iter trough puppets. because puppets doesnt update their hp and shields
     let mut data_about_ships: HashMap<u64, (String, f32, f32)> = HashMap::new();
-    for (object, transform, e) in ships_q.iter().chain(ships_puppets_q.iter()){ 
+    for (object, transform, visibility, e) in ships_q.iter().chain(ships_puppets_q.iter()){ 
+        if visibility == Visibility::Hidden {
+            continue;
+        };
         let id = e.to_bits();
         let data = clients_data.get_option_by_object_id(object.id);
         if data.is_some(){
             let data = data.unwrap();
             match object.object_type {
-                ObjectType::Ship { style:_ , color: _, shields, hp } => {
+                ObjectType::Ship { style:_ , color: _, shields, hp} => {
                     let (name, shields, hp) = if ships_puppets_q.contains(e){
                         let res = data_about_ships.get(&object.id);
                         if res.is_none(){

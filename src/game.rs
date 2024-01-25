@@ -1,3 +1,5 @@
+use std::f32::consts::PI;
+
 use bevy::{
     prelude::*,
     sprite::{MaterialMesh2dBundle, Mesh2dHandle}, render::{render_resource::{PrimitiveTopology, Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages}, mesh::Indices, camera::RenderTarget, view::RenderLayers}, utils::{HashMap, hashbrown::HashSet}, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::{BloomSettings, BloomCompositeMode}, clear_color::ClearColorConfig}, window::WindowResized,
@@ -14,7 +16,7 @@ pub use components::*;
 
 
 pub fn pixel_camera_event_listener(
-    mut settings: ResMut<GameSettings>,
+    settings: Res<GameSettings>,
     mut listener: EventReader<ApplyCameraSettings>,
     mut camera: Query<(&mut Tonemapping, &mut BloomSettings, &mut DebandDither), With<PixelCamera>>
 ){
@@ -60,7 +62,6 @@ pub fn init_pixel_camera(app: &mut App){
     app.add_systems(Update, (update_pixel_camera, pixel_camera_event_listener));
 }
 
-#[allow(dead_code)]
 fn setup_pixel_camera(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
@@ -154,7 +155,7 @@ fn setup_pixel_camera(
 }
 
 #[allow(dead_code)]
-pub const TARGET_HEIGHT: f32 = 512.; // add setting
+pub const TARGET_HEIGHT: f32 = 512.; // todo: add setting
 
 #[allow(dead_code)]
 pub fn update_pixel_camera(
@@ -210,7 +211,7 @@ pub fn get_ship_vertices(style: u8) -> (Vec<Vec<(f32, f32)>>, Vec<Vec<u32>>){
     let mut z_indexes: Vec<i8> = vec![]; 
     /*
     -1 shards, spikes
-    0 standart
+    0 standard
     1 gem
     */
 
@@ -289,7 +290,7 @@ pub fn get_ship_vertices(style: u8) -> (Vec<Vec<(f32, f32)>>, Vec<Vec<u32>>){
         }
     }
 
-    //let permutation = permutation::sort(&z_indexes);
+    //let permutation = permutation::sort(&z_indexes); // todo: exclude permutation from deps (if unused)
     //let vertices = permutation.apply_slice(&vertices);
     //let indices = permutation.apply_slice(&indices);
     return (vertices, indices);
@@ -447,6 +448,7 @@ pub fn spawn_ship(
     commands: &mut Commands,
     player_data: &ClientData,
     cfg: &mut ResMut<GlobalConfig>,
+    time: &Time,
 ) -> Entity {
     let color = Color::from(player_data.color).as_rgba_f32();
     let target_style = player_data.style;
@@ -481,7 +483,7 @@ pub fn spawn_ship(
     //let is_gem = bits[5];
     //let is_shards = bits[6];
     
-    let offset: f32 = -(1. / 3.); // for fixing center of body.
+    let offset: f32 = -(1. / 3.); // for fixing center of body. // todo: maybe it outdated
 
     let is_aspects = bits[7];
     let is_lined = bits[2];
@@ -543,7 +545,16 @@ pub fn spawn_ship(
                 id: player_data.object_id,
                 object_type: ObjectType::Ship { style: target_style, color: player_data.color, shields: cfg.player_shields, hp: cfg.player_hp }
             },
-        )).insert(MaterialMesh2dBundle { //MESH
+            ShipStatuses{
+                current: HashMap::new()
+            },
+
+            ShipState::Regular { spawn_time: time.elapsed_seconds() }
+
+        ))
+        .insert(LastDamageTaken{time: 0.})
+        .insert(MaterialMesh2dBundle { //MESH
+            
                 mesh: Mesh2dHandle(meshes.add(mesh)),
                 transform: Transform::from_translation(Vec3::ZERO),
                 material: materials.add(ColorMaterial::default()), //ColorMaterial::from(texture_handle)
@@ -893,7 +904,7 @@ pub fn update_chunks_around(
                                 let player_data = clients_data.get_option_by_object_id(object.id);
                                 if player_data.is_some(){
                                     let player_data = player_data.unwrap();
-                                    let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, player_data, &mut cfg);
+                                    let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, player_data, &mut cfg, &time);
                                     commands.entity(entity).insert((
                                         **velocity,
                                         Transform::from_translation(pos),
@@ -965,10 +976,11 @@ pub fn spawn_bullet(
     ))
     .insert(
         SpriteBundle {
-            transform: Transform::from_matrix(Mat4::from_rotation_translation(transform.rotation, transform.translation)),
+            transform: Transform::from_matrix(Mat4::from_rotation_translation(Quat::from_rotation_z(Vec2::X.angle_between(target_velocity) + PI / 2.), transform.translation)),
             texture: asset_server.load("bullet.png"),
             ..default()
     }).id()
+    
 }
 
 
@@ -1158,10 +1170,12 @@ pub fn check_bullet_collisions_and_lifetime(
     mut materials: ResMut<Assets<ColorMaterial>>,
     /*mut query_asteroid: Query<(&mut Asteroid, &Velocity, &mut Object), Without<Puppet>>,
     mut query_ship: Query<&mut Object, With<Ship>>,*/
+    mut states_q: Query<&ShipState, Without<Puppet>>,
     mut query_object: Query<(&mut Object, &mut Velocity), (Without<Puppet>, Without<Bullet>)>,
     mut cfg: ResMut<GlobalConfig>,
     time: Res<Time>
 ){
+    let mut to_despawn = HashSet::new();
     for (bullet_entity, transform,  mut bullet, mut object) in bullets_data.iter_mut() {
         match object.object_type{
             ObjectType::Bullet { mut previous_position, spawn_time, owner} => {
@@ -1212,6 +1226,7 @@ pub fn check_bullet_collisions_and_lifetime(
                                         o <- O -> o
                                         SPLIT ASTEROID
                                         todo: fix velocity
+                                        todo: fix client lag when asteroid splits
                                         */
         
                                         let current_size = get_asteroid_size(seed);
@@ -1256,7 +1271,23 @@ pub fn check_bullet_collisions_and_lifetime(
                                     return false
                                 }
                                 ObjectType::Ship { style, color, mut shields, mut hp} => {
-                                    if !(object.id == owner && time.elapsed().as_secs_f32() - spawn_time < 1.){ // check ownership, after one second bullet will damage owner
+                                    match states_q.get(entity).unwrap() {
+                                        ShipState::Dash { start_time: _, direction: _ } => {
+                                            to_despawn.insert(bullet_entity);
+                                            return false
+                                        },
+                                        ShipState::Regular { spawn_time } => {
+                                            if spawn_time + cfg.spawn_immunity_time > time.elapsed_seconds(){
+                                                to_despawn.insert(bullet_entity);
+                                                return false
+                                            }
+                                        },
+                                        ShipState::Dead { death_time: _ } => {
+                                            return true
+                                        },
+                                    }
+                                    if !(object.id == owner && time.elapsed().as_secs_f32() - spawn_time < 0.3){ // check ownership, after some time bullet will damage owner
+                                        commands.entity(entity).insert(LastDamageTaken{time: time.elapsed_seconds()});
                                         if shields > 0.{
                                             shields -= cfg.bullet_damage;
                                             //println!("s {}", shields);
@@ -1273,7 +1304,8 @@ pub fn check_bullet_collisions_and_lifetime(
                                             let mut object_copy = object.clone();
                                             object_copy.object_type = ObjectType::Ship { style , color,  shields, hp };
                                             commands.entity(entity).insert((
-                                                Visibility::Hidden,
+                                                ShipState::Dead { death_time: time.elapsed_seconds() },
+                                                //Visibility::Hidden,
                                                 ColliderDisabled,
                                                 Velocity::zero(),
                                                 object_copy
@@ -1285,7 +1317,7 @@ pub fn check_bullet_collisions_and_lifetime(
                                             commands.entity(entity).insert(object_copy);
                                             //println!("-> {} hp {} sh {}", object.id, hp, shields);
                                         }
-                                        commands.entity(bullet_entity).despawn_recursive();
+                                        to_despawn.insert(bullet_entity);
                                         return false
                                     }
                                     
@@ -1293,7 +1325,7 @@ pub fn check_bullet_collisions_and_lifetime(
                                 _ => {}
                             }
                         }
-                        true // Return `false` instead if we want to stop searching for other hits.
+                        return true // Return `false` instead if we want to stop searching for other hits.
                 });
                 // UPDATE
                 //println!("pos {} -> {}", previous_position.translation.truncate(), transform.translation.truncate());
@@ -1304,11 +1336,14 @@ pub fn check_bullet_collisions_and_lifetime(
                 };
                 //LIFETIME
                 if time.elapsed().as_secs_f32() - spawn_time > cfg.bullet_lifetime_secs{
-                    commands.entity(bullet_entity).despawn_recursive();
+                    to_despawn.insert(bullet_entity);
                 }
             }
             _ => {}
         }
+    }
+    for e in to_despawn.iter(){
+        commands.entity(*e).despawn();
     }
 }
 

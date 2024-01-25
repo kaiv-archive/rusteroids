@@ -1,8 +1,8 @@
-use std::{net::{UdpSocket, SocketAddr}, time::SystemTime, f32::consts::PI, collections::{HashMap, HashSet}};
+use std::{net::{UdpSocket, SocketAddr}, time::SystemTime, f32::consts::PI, collections::{HashSet}};
 
-use bevy::{prelude::*, core_pipeline::clear_color::ClearColorConfig, window::WindowResized};
+use bevy::{core_pipeline::clear_color::ClearColorConfig, ecs::schedule::ScheduleLabel, prelude::*, utils::{hashbrown::HashMap}, window::WindowResized};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use bevy_rapier2d::{prelude::{RapierPhysicsPlugin, NoUserData, Velocity}, render::RapierDebugRenderPlugin};
+use bevy_rapier2d::{geometry::ColliderDisabled, prelude::{RapierPhysicsPlugin, NoUserData, Velocity}, render::RapierDebugRenderPlugin};
 use bevy_renet::{renet::{*, transport::*}, RenetServerPlugin, transport::NetcodeServerPlugin};
 use renet_visualizer::RenetServerVisualizer;
 use bevy_egui::{egui::{self, Style, Visuals, epaint::Shadow, Color32, Rounding, Align, Stroke, FontId}, EguiContexts, EguiPlugin};
@@ -77,6 +77,7 @@ fn main(){
         debug_chunk_render,
         resize_server_camera,
 
+        state_and_status_checker,
         check_bullet_collisions_and_lifetime,
         check_ship_collisions_and_lifetime,
         
@@ -292,22 +293,33 @@ fn send_message_system(
     mut server: ResMut<RenetServer>,
     clients_data: Res<ClientsData>,
     mut commands: Commands,
-    mut objects_q: Query<(&Object, &Velocity, &Transform), (With<Object>, Without<Puppet>)>,
+    states_and_statuses_q: Query<(&ShipState, &ShipStatuses), Without<Puppet>>,
+    mut objects_q: Query<(&Object, &Velocity, &Transform, Entity), (With<Object>, Without<Puppet>)>,
     mut objects_distribution: ResMut<ObjectsDistribution>, 
     cfg: ResMut<GlobalConfig>,
+    time: Res<Time>,
 ) {
-
+    /*
+                LastDamageTaken{time: 0.},
+    */
     objects_distribution.data = HashMap::new();
 
     let mut chunk_to_objects: HashMap<(u32, u32), Vec<ObjectData>> = HashMap::new();
 
     for object in objects_q.iter(){
-        let (object, velocity, transform) = object;
+        let (object, velocity, transform, e) = object;
 
-        
+        let is_player = match object.object_type{
+            ObjectType::Ship { style: _, color: _, shields: _, hp: _} => {true},
+            _ => {false}
+        };
 
         let object_data = ObjectData{
             object: object.clone(),
+            states_and_statuses: if is_player {
+                let states_and_statuses = states_and_statuses_q.get(e).unwrap();
+                Some((states_and_statuses.0.clone(), states_and_statuses.1.clone()))
+            } else {None},
             angular_velocity: velocity.angvel,
             linear_velocity: velocity.linvel,
             translation: transform.translation,
@@ -323,10 +335,7 @@ fn send_message_system(
         } else {
             chunk_to_objects.insert((chunk_pos.x as u32, chunk_pos.y as u32), vec![object_data]);
         }
-        let is_player = match object.object_type{
-            ObjectType::Ship { style: _, color: _, shields: _, hp: _} => {true},
-            _ => {false}
-        };
+        
         if objects_distribution.data.contains_key(&key){
             let (n, has_player, mut vec) = objects_distribution.data.get(&key).unwrap().clone();
             vec.push(transform.translation.truncate());
@@ -339,12 +348,13 @@ fn send_message_system(
 
 
     for client_id in server.clients_id().into_iter() {
-        let cd = clients_data.get_option_by_client_id(client_id.raw());
-        if cd.is_some(){
-            let e = cd.unwrap().entity;
+        let clients_data = clients_data.get_option_by_client_id(client_id.raw());
+        if clients_data.is_some(){
+            let clients_data = clients_data.unwrap();
+            let e = clients_data.entity;
             let obj = objects_q.get(e);
             if obj.is_ok(){
-                let (iterated_ship, _, t) = obj.unwrap();
+                let (iterated_ship, _, t, _) = obj.unwrap();
 
                 
                 let chunk = cfg.pos_to_chunk(&t.translation);
@@ -354,14 +364,19 @@ fn send_message_system(
                     for y in (chunk.y as i32) - 1 .. chunk.y as i32 + 2{
                         let real_chunk = cfg.chunk_to_real_chunk_v2(&Vec2{x: x as f32, y: y as f32});
                         
-                        let objects_in_chunk = chunk_to_objects.get(&(real_chunk.x as u32, real_chunk.y as u32));
+                        let objects_in_chunk: Option<&Vec<ObjectData>> = chunk_to_objects.get(&(real_chunk.x as u32, real_chunk.y as u32));
                         if objects_in_chunk.is_some() && !included_chunks.contains(&(real_chunk.x as u32, real_chunk.y as u32)){
                             for object_data in objects_in_chunk.unwrap().iter(){
                                 match object_data.object.object_type{
                                     ObjectType::Ship { style: _, color: _, shields: _, hp: _ } => { // todo: states
-                                        
-                                        personalised_data.push(object_data.clone());
-                                        
+                                        match object_data.states_and_statuses.clone().unwrap().0 {
+                                            ShipState::Dead { death_time: _ } => {
+                                                if clients_data.object_id == object_data.object.id { // send only to owner
+                                                    personalised_data.push(object_data.clone());   
+                                                }
+                                            },
+                                            _ => {personalised_data.push(object_data.clone());}
+                                        }
                                     },
                                     _ => {
                                         personalised_data.push(object_data.clone());
@@ -385,12 +400,14 @@ fn send_message_system(
 
 struct ServerSideVarables{
     shooting_cds: HashMap<u64, f32>, // client_id -> latest shoot time
+    dash_cds: HashMap<u64, f32>, // client_id -> latest shoot time
 }
 
 impl Default for ServerSideVarables{
     fn default() -> Self {
         ServerSideVarables{
-            shooting_cds: HashMap::new()
+            shooting_cds: HashMap::new(),
+            dash_cds: HashMap::new(),
         }
     }
 }
@@ -405,7 +422,7 @@ fn receive_message_system(
     mut materials: ResMut<Assets<ColorMaterial>>,
     transport: Res<NetcodeServerTransport>,
     mut server_side_varables: Local<ServerSideVarables>,
-    mut ships_q: Query<(&mut Velocity, &Transform), (With<Ship>, Without<Puppet>)>,
+    mut ships_q: Query<(&mut Velocity, &Transform, &Object, &mut ShipState), (With<Ship>, Without<Puppet>)>,
     time: Res<Time>,
     asset_server: Res<AssetServer>,
 ) {
@@ -421,52 +438,113 @@ fn receive_message_system(
                         let res = ships_q.get_mut(client_data.entity);
 
                         if res.is_ok(){
-                            let (mut velocity, transform) = res.unwrap();
+                            let (mut velocity, transform, object, mut state) = res.unwrap();
 
-                            // MOVES
-                            let mut target_direction = Vec2::ZERO;
-                            if inputs.up    {target_direction.y += 1.5;} //  || buttons.pressed(MouseButton::Right
-                            if inputs.down  {target_direction.y -= 0.75;}
-                            if inputs.right {target_direction.x += 1.0;}
-                            if inputs.left  {target_direction.x -= 1.0;}
                             
-                            // let it be...
-                            let target_angle = transform.up().truncate().angle_between(inputs.rotation_target);
-                            if !target_angle.is_nan(){
-                                velocity.angvel += ((target_angle * 180. / PI - velocity.angvel) * 1.).clamp(-90., 90.);//.clamp(-1.5, 1.5);
-                            }
-                            velocity.linvel += target_direction;
+                            //todo: add dash
+                            match *state{
+                                ShipState::Dead { death_time: _ } => {} // cant move!
+                                ShipState::Dash { start_time, mut direction } => {
+                                    
+                                    //*velocity.linvel = direction.normalize_or_zero() * 400. * (0.5 + 1. - ((time.elapsed_seconds() - start_time) / cfg.dash_time).powi(3));
 
-                            // SHOOTING
-                            if inputs.shoot{
-                                let exist = server_side_varables.shooting_cds.contains_key(&client_id.raw());
-                                let current_time = time.elapsed().as_secs_f32();
-                                if exist {
-                                    let last_time = server_side_varables.shooting_cds.get(&client_id.raw()).unwrap().clone();
-                                    if time.elapsed().as_secs_f32() - last_time > cfg.shoot_cd_secs{
-                                        spawn_bullet(
-                                            velocity.linvel + transform.up().truncate() * 1000., 
-                                            *transform, 
-                                            cfg.new_id(), 
-                                            client_data.object_id, 
-                                            current_time, 
-                                            &asset_server, 
-                                            &mut commands
-                                        );
-                                        
-                                        server_side_varables.shooting_cds.insert(client_id.raw(), current_time);
+                                    //*state = ShipState::Dash { start_time: time.elapsed_seconds(), direction: target_direction };
+
+                                    if inputs.up    {direction.y += 1.5;} //  || buttons.pressed(MouseButton::Right
+                                    if inputs.down  {direction.y -= 0.75;}
+                                    if inputs.right {direction.x += 1.0;}
+                                    if inputs.left  {direction.x -= 1.0;}
+                                     
+
+                                    // let it be...
+                                    velocity.linvel = direction.normalize_or_zero() * 400. * (0.5 + 1. - ((time.elapsed_seconds() - start_time) / cfg.dash_time).powi(3));
+                                    *state = ShipState::Dash { start_time: start_time, direction: direction };
+                                    let target_angle = transform.up().truncate().angle_between(inputs.rotation_target);
+                                    
+                                    if !target_angle.is_nan(){
+                                        velocity.angvel += ((target_angle * 180. / PI - velocity.angvel) * 1.).clamp(-1., 3.);//.clamp(-1.5, 1.5);
                                     }
-                                } else {
-                                    spawn_bullet(
-                                        velocity.linvel + transform.up().truncate() * 1000., 
-                                        *transform, 
-                                        cfg.new_id(), 
-                                        client_data.object_id, 
-                                        current_time, 
-                                        &asset_server, 
-                                        &mut commands
-                                    );
-                                    server_side_varables.shooting_cds.insert(client_id.raw(), current_time);
+                                    
+
+                                    
+                                    
+                                    if start_time + cfg.dash_time < time.elapsed_seconds(){
+                                        *state = ShipState::Regular { spawn_time: time.elapsed_seconds() - cfg.spawn_immunity_time - 1. };
+                                    }
+                                }
+                                ShipState::Regular { spawn_time: _ } => {
+                                    // MOVES
+                                    let mut target_direction = Vec2::ZERO;
+                                    if inputs.up    {target_direction.y += 1.5;} //  || buttons.pressed(MouseButton::Right
+                                    if inputs.down  {target_direction.y -= 0.75;}
+                                    if inputs.right {target_direction.x += 1.0;}
+                                    if inputs.left  {target_direction.x -= 1.0;}
+                                     
+
+                                    // let it be...
+                                    let target_angle = transform.up().truncate().angle_between(inputs.rotation_target);
+                                    if !target_angle.is_nan(){
+                                        velocity.angvel += ((target_angle * 180. / PI - velocity.angvel) * 1.).clamp(-90., 90.);//.clamp(-1.5, 1.5);
+                                    }
+                                    velocity.linvel += target_direction;
+
+                                    // SHOOTING
+                                    if inputs.shoot{
+                                        let exist = server_side_varables.shooting_cds.contains_key(&client_id.raw());
+                                        let current_time = time.elapsed().as_secs_f32();
+                                        if exist {
+                                            let last_time = server_side_varables.shooting_cds.get(&client_id.raw()).unwrap().clone();
+                                            if time.elapsed().as_secs_f32() - last_time > cfg.shoot_cd_secs{
+                                                spawn_bullet(
+                                                    velocity.linvel + transform.up().truncate() * 1000., 
+                                                    *transform, 
+                                                    cfg.new_id(), 
+                                                    client_data.object_id, 
+                                                    current_time, 
+                                                    &asset_server, 
+                                                    &mut commands
+                                                );
+                                                
+                                                server_side_varables.shooting_cds.insert(client_id.raw(), current_time);
+                                            }
+                                        } else {
+                                            spawn_bullet(
+                                                velocity.linvel + transform.up().truncate() * 1000., 
+                                                *transform, 
+                                                cfg.new_id(), 
+                                                client_data.object_id, 
+                                                current_time, 
+                                                &asset_server, 
+                                                &mut commands
+                                            );
+                                            server_side_varables.shooting_cds.insert(client_id.raw(), current_time);
+                                        }
+                                    }
+                                    if inputs.dash {
+                                        let exist = server_side_varables.dash_cds.contains_key(&client_id.raw());
+                                        let current_time = time.elapsed().as_secs_f32();
+                                        if exist {
+                                            let last_time = server_side_varables.dash_cds.get(&client_id.raw()).unwrap().clone();
+                                            if time.elapsed().as_secs_f32() - last_time > cfg.dash_cd_secs{
+                                                if target_direction == Vec2::ZERO {
+                                                    target_direction = Vec2::from_angle(transform.rotation.to_euler(EulerRot::XYZ).2 + PI / 2.);
+                                                }
+                                                *state = ShipState::Dash { start_time: time.elapsed_seconds(), direction: target_direction };
+                                                
+                                                velocity.angvel = 0.;
+                                                
+                                                server_side_varables.dash_cds.insert(client_id.raw(), current_time);
+                                            }
+                                        } else {
+                                            if target_direction == Vec2::ZERO {
+                                                target_direction = Vec2::from_angle(transform.rotation.to_euler(EulerRot::XYZ).2 + PI / 2.);
+                                            }
+                                            *state = ShipState::Dash { start_time: time.elapsed_seconds(), direction: target_direction };
+                                            
+                                            velocity.angvel = 0.;
+                                            server_side_varables.dash_cds.insert(client_id.raw(), current_time);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -493,7 +571,7 @@ fn receive_message_system(
 
                     let pos = get_pos_to_spawn(&mut objects_distribution, &mut cfg).extend(0.);
 
-                    let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &for_spawn_cl_data, &mut cfg);
+                    let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &for_spawn_cl_data, &mut cfg, &time);
                     commands.entity(entity).insert(Transform::from_translation(pos));
                     let new_client_data = ClientData { 
                         client_id: client_id.raw(),
@@ -570,3 +648,54 @@ fn handle_events_system(
     }
 }
 
+fn state_and_status_checker(
+    mut ships_q: Query<(&mut Object, &mut ShipState, &LastDamageTaken), (With<Ship>, Without<Puppet>)>,
+    time: Res<Time>,
+    mut commands: Commands,
+    mut objects_distribution: ResMut<ObjectsDistribution>,
+    mut cfg: ResMut<GlobalConfig>,
+    mut clients_data: ResMut<ClientsData>,
+){
+    for (mut object, mut state, last_damage_taken) in ships_q.iter_mut(){
+        match *state{
+            ShipState::Regular { spawn_time } => {
+
+            },
+            ShipState::Dash { start_time, direction: _  } => {
+
+            },
+            ShipState::Dead { death_time } => {
+                if death_time + cfg.respawn_time_secs < time.elapsed_seconds(){ // respawn
+                let pos = get_pos_to_spawn(&mut objects_distribution, &cfg);
+                let mut respawned_object = object.clone();
+                match object.object_type{
+                    ObjectType::Ship { style, color, shields, hp } => {
+                        respawned_object.object_type = ObjectType::Ship{
+                            style,
+                            color,
+                            shields: cfg.player_shields,
+                            hp: cfg.player_hp,
+                        };
+                        let client_data = clients_data.get_by_object_id(object.id);
+                        commands.entity(client_data.entity).insert((
+                            ShipState::Regular { spawn_time: time.elapsed_seconds() },
+                            respawned_object,
+                            Transform::from_translation(pos.extend(0.))
+                        ));
+                        commands.entity(client_data.entity).remove::<ColliderDisabled>();
+                    }
+                    _ => {}
+                }
+            }
+            },
+        }
+        if last_damage_taken.time + cfg.shield_recharge_delay < time.elapsed_seconds(){
+            match object.object_type{
+                ObjectType::Ship { style, color, shields, hp } => {
+                    object.object_type = ObjectType::Ship { style, color, shields: (shields + time.delta_seconds() * cfg.shield_recharge_per_sec).clamp(0., cfg.player_shields), hp };
+                }
+                _ => {}
+            }
+        }
+    }
+}

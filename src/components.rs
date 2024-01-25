@@ -1,5 +1,5 @@
-use std::{collections::HashMap, time::Duration};
-use bevy::{prelude::{Component, Resource, Event, Vec2, Vec3, Transform, Entity, Quat}, render::color::Color, ecs::schedule::States};
+use std::{time::Duration};
+use bevy::{prelude::{Component, Resource, Event, Vec2, Vec3, Transform, Entity, Quat}, render::color::Color, ecs::schedule::States, utils::HashMap};
 use bevy_rapier2d::prelude::Velocity;
 use bevy_renet::renet::{ChannelConfig, SendType, ConnectionConfig};
 use rand::{SeedableRng, Rng};
@@ -59,6 +59,7 @@ pub enum Message{
 #[derive(Clone)]
 pub struct ObjectData{
     pub object: Object,
+    pub states_and_statuses: Option<(ShipState, ShipStatuses)>,
     pub angular_velocity: f32,
     pub linear_velocity: Vec2,
     pub translation: Vec3,
@@ -82,6 +83,8 @@ pub struct ClientsData{
 }
 
 
+#[derive(Component)]
+pub struct LastDamageTaken{pub time: f32} 
 
 
 #[derive(Serialize, Deserialize)]
@@ -202,11 +205,15 @@ pub struct GlobalConfig{
     pub asteroid_hp: [i8; 3],
     pub player_hp: f32,
     pub player_shields: f32,
+    pub shield_recharge_per_sec: f32,
     pub bullet_damage: f32,
     // TIMERS
     pub dash_cd_secs: f32,
+    pub dash_time: f32,
     pub shoot_cd_secs: f32,
     pub bullet_lifetime_secs: f32,
+    pub shield_recharge_delay: f32,
+    pub spawn_immunity_time: f32,
     pub respawn_time_secs: f32,
 
 }
@@ -221,10 +228,14 @@ impl Default for GlobalConfig {
             asteroid_hp: [1, 1, 1],
             player_hp: 100.,
             player_shields: 100.,
+            shield_recharge_per_sec: 10.,
+            shield_recharge_delay: 5.,
             bullet_damage: 200.,
             dash_cd_secs: 3.,
+            dash_time: 1.,
             shoot_cd_secs: 0.5,
             bullet_lifetime_secs: 10.,
+            spawn_immunity_time: 2.,
             respawn_time_secs: 5.
         }
     }
@@ -354,6 +365,7 @@ pub enum ObjectType{
 
 #[derive(Serialize, Deserialize)]
 #[derive (Clone, Copy)]
+#[derive(Hash, PartialEq, Eq)]
 pub enum PowerUPType{
     Repair, // +--
     DoubleDamage, // +--
@@ -363,17 +375,24 @@ pub enum PowerUPType{
 }
 
 
+#[derive (Component)]
 #[derive(Serialize, Deserialize)]
+#[derive (Clone, Copy)]
 pub enum ShipState{
-    Regular{spawn_time: f32},
-    Dash{start_time: f32},
+    Regular{spawn_time: f32}, // spawn_time for imunity
+    Dash{start_time: f32, direction: Vec2},
     Dead{death_time: f32},
+}
+#[derive (Component)]
+#[derive(Serialize, Deserialize)]
+#[derive (Clone)]
+pub struct ShipStatuses{
+    pub current: HashMap<PowerUPType, f32>
 }
 
 
 #[derive(Component)]
 pub struct ShipPreview;
-
 
 
 // ids and properties of fast and garanteed same for both client and server are the same. maybe use just one enum Channel?

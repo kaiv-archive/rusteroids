@@ -52,7 +52,8 @@ pub fn update_preview_ship(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut cfg: ResMut<GlobalConfig>,
-    clients_data: Res<ClientsData>
+    clients_data: Res<ClientsData>,
+    time: Res<Time>,
 ){
     let clientdata = clients_data.get_by_client_id(0);
     let sp = ship_preview.get_single_mut();
@@ -62,7 +63,7 @@ pub fn update_preview_ship(
             if clientdata.style != *prev_style || clientdata.color != *prev_color{
                 commands.entity(e).despawn_recursive();
                 let player_data = clients_data.get_by_client_id(0);
-                let e = spawn_ship(true, &mut meshes, &mut materials, &mut commands, player_data, &mut cfg);
+                let e = spawn_ship(true, &mut meshes, &mut materials, &mut commands, player_data, &mut cfg, &time);
                 commands.entity(e).insert((ShipPreview, RenderLayers::layer(GameRenderLayers::PreviewCamera as u8), Transform::from_translation(Vec3::ZERO).with_scale(Vec3::splat(9.))));
                 *prev_style = clientdata.style;
                 *prev_color = clientdata.color;
@@ -83,7 +84,8 @@ pub fn setup_preview_camera(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut cfg: ResMut<GlobalConfig>,
-    mut clients_data: ResMut<ClientsData>
+    mut clients_data: ResMut<ClientsData>,
+    time: Res<Time>,
 ){
     clients_data.add(ClientData{
         client_id: 0,
@@ -150,7 +152,7 @@ pub fn setup_preview_camera(
         Name::new("ShipPreviewCamera")
     )).insert(preview_pass_layer);
     let player_data = clients_data.get_by_client_id(0);
-    let e = spawn_ship(true, &mut meshes, &mut materials, &mut commands, player_data, &mut cfg);
+    let e = spawn_ship(true, &mut meshes, &mut materials, &mut commands, player_data, &mut cfg, &time);
     commands.entity(e).insert((ShipPreview, RenderLayers::layer(GameRenderLayers::PreviewCamera as u8), Transform::from_translation(Vec3::ZERO).with_scale(Vec3::splat(9.))));
 }
 
