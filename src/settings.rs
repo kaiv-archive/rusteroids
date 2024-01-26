@@ -10,18 +10,12 @@ pub struct GameSettings{
     pub effects_volume: f32,
 
     // MENU BEAMS
-    pub beams_len: f32,
     pub beams_lifetime: f32,
-    pub beams_path_offset: f32,
-    pub beams_origin_offset: f32,
-    pub beams_path_fov: f32,
+    pub beams_perspective_factor: f32,
+    pub beams_spawn_radius: f32,
     pub beams_speed: f32,
     pub beams_number: u32,
-    pub beams_randomcolor: bool,
-    pub beams_coloroffset_r: f32,
-    pub beams_coloroffset_g: f32,
-    pub beams_coloroffset_b: f32,
-    pub beams_color: Color,
+
 
     // GRAPHICS SETTINGS
     pub deband_dither: DebandDither,
@@ -55,18 +49,13 @@ impl Default for GameSettings {
             music_volume: 100., // ADD IMPLEMENTATION!!!
             effects_volume: 100., // ADD IMPLEMENTATION!!!
             // MENU BEAMS
-            beams_len: 150.,
-            beams_lifetime: 1.,
-            beams_origin_offset: 100.,
-            beams_path_fov: 1.,
-            beams_path_offset: 5.,
-            beams_speed: 0.6,
-            beams_number: 100,
-            beams_randomcolor: true, // ADD IMPLEMENTATION!!
-            beams_coloroffset_r: 0.1, // ADD IMPLEMENTATION!!
-            beams_coloroffset_g: 0.1, // ADD IMPLEMENTATION!!
-            beams_coloroffset_b: 0.1, // ADD IMPLEMENTATION!!
-            beams_color: Color::WHITE, // ADD IMPLEMENTATION!!
+            beams_lifetime: 100., // -> beams 
+
+            beams_number: 1000,
+            beams_spawn_radius: 4000.,
+            beams_perspective_factor: 0.13,
+            beams_speed: 0.4,
+
             // todo ADD MSAA SAMPLING SETTING!
             // GRAPHICS VFX SETTINGS 
             bloom_intensity: 0.1, 

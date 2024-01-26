@@ -43,14 +43,14 @@ fn main(){
     app.add_systems(
         OnEnter(ClientState::Menu), 
         (
-            setup_splash_and_beams,
+            setup_splash,
             setup_preview_camera
     ));
     app.add_systems(
         Update, 
         (
             update_menu,
-            spawn_beam,
+            update_beams,
             egui_based_menu,
             update_preview_ship,
     ).run_if(in_state(ClientState::Menu)));
@@ -87,8 +87,6 @@ fn main(){
 
 
     app.insert_resource(ConnectProperties{adress: "".into()});
-
-    app.add_event::<SpawnMenuBeam>();
 
 
     game::init_pixel_camera(&mut app);

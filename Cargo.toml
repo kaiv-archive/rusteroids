@@ -58,7 +58,7 @@ path = "src/test1.rs"
 
 [[bin]]
 name = "test2"
-path = "src/t2.rs"
+path = "src/test2.rs"
 
 [[bin]]
 name = "solo"

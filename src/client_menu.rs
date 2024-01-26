@@ -1,31 +1,17 @@
 use std::{f32::consts::PI, ops::RangeInclusive};
-use bevy::{render::{view::RenderLayers, render_resource::{TextureDescriptor, Extent3d, TextureDimension, TextureFormat, TextureUsages}, camera::RenderTarget}, prelude::*, app::AppExit, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::{BloomCompositeMode, BloomSettings}, clear_color::ClearColorConfig}};
+use bevy::{app::AppExit, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::{BloomCompositeMode, BloomSettings}, clear_color::ClearColorConfig}, prelude::*, render::{camera::RenderTarget, mesh::Indices, render_resource::{Extent3d, PrimitiveTopology, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages}, view::RenderLayers}, sprite::{MaterialMesh2dBundle, Mesh2dHandle}};
 use bevy_egui::{egui::{self, Style, Visuals, epaint::{Shadow, CircleShape}, Color32, Rounding, Align, Stroke, FontId, load::SizedTexture, Slider, TextureId, ComboBox}, EguiContexts, EguiUserTextures};
-use rand::random;
+use bevy_rapier2d::na::ComplexField;
+use rand::{random, Rng};
 
 use crate::{game::*, game::components::{ConnectProperties, ClientState}};
 
 #[derive(Component)]
 pub struct LabelAnimation;
 
-#[derive(Component)]
-pub struct MenuBeam{
-    pub velocity: Vec3,
-    pub translation_offset: Vec3, // DELETE
-    pub lifetime: f32,
-}
-
-
-#[derive(Event)]
-pub struct SpawnMenuBeam{
-    pub rotation: f32,
-    pub offset: f32,
-    pub translation_offset: Vec3, // DELETE
-}
-
 pub fn despawn_menu(
     mut commands: Commands,
-    beam_q: Query<Entity, With<MenuBeam>>,
+    beam_q: Query<Entity, With<Beam>>,
     label_q: Query<Entity, With<LabelAnimation>>,
     preview_camera_q: Query<Entity, With<ShipPreviewCamera>>,
     preview_ship_q: Query<Entity, With<ShipPreview>>,
@@ -425,13 +411,10 @@ pub fn egui_based_menu(
             egui::CollapsingHeader::new("⏺ [ MENU SETTINGS ]")
                 .default_open(true)
                 .show(ui, |ui| {
-                    ui.add(egui::Slider::new(&mut settings.beams_len , 0.0..= 500.0).text("Beams length"));
                     ui.add(egui::Slider::new(&mut settings.beams_number , 0..= 5000).text("Beams number"));
-                    ui.add(egui::Slider::new(&mut settings.beams_origin_offset , 0.0..= 1000.0).text("Beams origin offset"));
-                    ui.add(egui::Slider::new(&mut settings.beams_lifetime , 0.0..= 50.0).text("Beams lifetime"));
-                    ui.add(egui::Slider::new(&mut settings.beams_path_fov , -10.0..= 10.0).text("Beams path fov"));
-                    ui.add(egui::Slider::new(&mut settings.beams_path_offset, -500.0..=500.0).text("Beams path offset"));
-                    ui.add(egui::Slider::new(&mut settings.beams_speed, 0.0..=10.0).text("Beams speed"));
+                    ui.add(egui::Slider::new(&mut settings.beams_spawn_radius , 100.0..= 10000.0).text("Beams spawn radius"));
+                    ui.add(egui::Slider::new(&mut settings.beams_perspective_factor, 0. ..=1. ).step_by(0.01).text("Beams perspective factor"));
+                    ui.add(egui::Slider::new(&mut settings.beams_speed, 0.0..=10.0).step_by(0.01).text("Beams speed"));
             });
     });
     
@@ -611,10 +594,9 @@ const MAX_LABEL_OFFSET: f32 = 0.8;
 
 
 
-pub fn setup_splash_and_beams(
+pub fn setup_splash(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    mut writer: EventWriter<SpawnMenuBeam>,
     settings: ResMut<GameSettings>,
 ){
 
@@ -646,101 +628,81 @@ pub fn setup_splash_and_beams(
         }
         
     }
-
-
-    // BEAMS //
-    for _ in 0..settings.beams_number{
-        writer.send(
-            SpawnMenuBeam{
-                rotation: random::<f32>() * PI * 2.,
-                offset: random::<f32>(),
-                translation_offset: Vec3::from([(random::<f32>() - 0.5), (random::<f32>() - 0.5), 0.]) * 0.3,
-            }
-        );
-    }
-    ///////////
-
-    return ()
 }
+#[derive(Component)]
+pub struct Beam {origin: Vec2, z: f32}
 
-
-pub fn spawn_beam(
-    mut reader: EventReader<SpawnMenuBeam>,
+pub fn update_beams(
     mut commands: Commands,
     settings: ResMut<GameSettings>,
-    //mut meshes: ResMut<Assets<Mesh>>,
-    //mut materials: ResMut<Assets<ColorMaterial>>,
     asset_server: Res<AssetServer>,
-){
-    for e in reader.read(){
-        let (offset, rotation, translation_offset) = (e.offset, e.rotation, e.translation_offset);
-        let target = Vec2::from_angle(rotation);
-        let target = Vec3{x: target.x, y: target.y, z: 0.};
+    mut beams_q: Query<(&mut Beam, &mut Transform, &mut Sprite, Entity), With<Beam>>
+){  
 
-        //let mut mesh = Mesh::new(PrimitiveTopology::LineList);
-        //mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[-1., 0., 0.,], [1., 0., 0.,]]);
-        //mesh.set_indices(Some(Indices::U32(vec![0, 1])));
-        //mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![Color::Rgba { red: 1., green: 1., blue: 1., alpha: 1. }.as_rgba_f32() ; 2]);
-        let position = settings.beams_path_offset * target + target * (settings.beams_origin_offset * offset.sqrt());
+    //let perspective_factor = settings.beams_origin_offset;
+    //let z = 1. - settings.beams_path_offset;
+
+    let number = settings.beams_number as usize;
+    let mut beams = beams_q.into_iter().len();
+    // spawn new
+    let max_len = Vec2::splat(settings.beams_spawn_radius * 0.01).extend(1000.).length();
+    if beams > number {
+        for (_, _, _, e) in beams_q.iter(){commands.entity(e).despawn()}
+        beams = 0;
+    }
+
+    
+    for _ in 0.. (number - beams){
+        let pos = Vec2::from_angle(rand::thread_rng().gen_range(-PI..=PI)) * rand::thread_rng().gen_range(100. ..=settings.beams_spawn_radius);
+        let rotation = Quat::from_rotation_z(Vec2::X.angle_between(pos));
+        let z = rand::thread_rng().gen_range(0. ..=1000.);
+        let back_dist = z * 0.001;//(max_len - (pos * 0.01).extend(1000. - z).length()) / max_len;
+        let scale = Vec3{
+            x: 0.1 + back_dist,
+            y: 0.2 + back_dist,
+            z: 0.2 + back_dist,
+        };
         commands.spawn((
             SpriteBundle{
-                texture: asset_server.load("smoothstar.png"),
-                transform: Transform::from_matrix(
-                    Mat4::from_rotation_translation(
-                    Quat::from_rotation_z(rotation),
-                    position
-                )).with_scale(Vec3{x: 0.25 * position.length().sqrt(), y: 0.25, z: 0.25}), // x: pathperc * settings.beams_len * 0.3
+                texture: asset_server.load("beam.png"),
+                transform: Transform::from_translation(pos.extend(0.)).with_rotation(rotation).with_scale(scale),
+                sprite: Sprite { color: Color::Rgba { red: z * 0.0005, green: z * 0.0005, blue: z * 0.0005, alpha: 1. }, ..default() },
                 ..default()
             },
-            /*MaterialMesh2dBundle {
-                mesh: Mesh2dHandle(meshes.add(mesh.clone())),
-                material: materials.add(ColorMaterial::default()),
-                transform: Transform::from_matrix(
-                    Mat4::from_rotation_translation(
-                    Quat::from_rotation_z(rotation),
-                    position
-                )).with_scale(Vec3{x: 0.25 * position.length().sqrt(), y: 0.25, z: 0.25}), // x: pathperc * settings.beams_len * 0.3
-                ..default()
-            },*/
-            MenuBeam{
-                velocity: Vec3{x: target.x, y: target.y, z: 0.} * position.length().sqrt(),
-                translation_offset: translation_offset,
-                lifetime: 0.
-            },
-            Name::new("BEAM"),
+            Beam{ 
+                origin: pos,
+                z
+            }
         ));
+    }
+    let perspective_factor = settings.beams_perspective_factor * 1000.;
+    let speed = settings.beams_speed * 10.;
+    // update
+    for (mut beam, mut transform, mut sprite, entity) in beams_q.iter_mut(){
+        beam.z += speed;
+        if beam.z > 1000.{
+            beam.z = 0.;
+            let pos = Vec2::from_angle(rand::thread_rng().gen_range(-PI..=PI)) * rand::thread_rng().gen_range(100. ..=settings.beams_spawn_radius);
+            beam.origin = pos;
+            transform.rotation = Quat::from_rotation_z(Vec2::X.angle_between(beam.origin));
+        };
+        transform.translation = (beam.origin * perspective_factor / (1000. - beam.z)).extend(0.);
+        let back_dist = beam.z * 0.001;//(max_len - (beam.origin * 0.01).extend(1000. - beam.z).length()) / max_len;
+        let scale = Vec3{
+            x: 0.1 + back_dist,
+            y: 0.2 + back_dist,
+            z: 0.2 + back_dist,
+        };
+        sprite.color = Color::Rgba { red: beam.z * 0.0005, green: beam.z * 0.0005, blue: beam.z * 0.0005, alpha: 1. };
+        transform.scale = scale;
         
-        /*commands.spawn((
-            SpriteBundle{
-                texture: asset_server.load("smoothstar.png"),
-                transform: Transform::from_matrix(
-                    Mat4::from_rotation_translation(
-                        Quat::from_rotation_z(rotation),
-                        position
-                    )).with_scale(Vec3{x: pathperc * settings.beams_len * 0.3, y: 0.25, z: 0.25}),
-                ..default()
-            },
-            MenuBeam{
-                velocity: Vec3{x: target.x, y: target.y, z: 0.}.normalize() * position.length(),
-                translation_offset: translation_offset
-            },
-            Name::new("BEAM"),
-        ));*/
     }
 }
 
 const LABELORIGIN: Vec3 = Vec3{x: 0., y: 128., z: 0.};
 
 pub fn update_menu(
-    mut writer: EventWriter<SpawnMenuBeam>,
-    mut beams: Query<(&mut MenuBeam, &mut Transform, &mut Sprite, Entity), Without<LabelAnimation>>,
-    //mut materials: ResMut<Assets<ColorMaterial>>,
-    //asset_server: Res<AssetServer>,
-    mut commands: Commands,
-    //mut local_offset: Local<Vec3>,
-    settings: ResMut<GameSettings>,
     mut gamelabel: Query<(&mut Transform, &mut Sprite), With<LabelAnimation>>,
-    
     time: Res<Time>,
 ){
 
@@ -779,7 +741,7 @@ pub fn update_menu(
        }
     }*/
     
-    let mut beam_count = 0;
+    /*let mut beam_count = 0;
     let delta = time.delta_seconds();
     for (mut beam, mut transform, mut sprite, entity) in beams.iter_mut(){
         beam.lifetime += delta;
@@ -829,11 +791,11 @@ pub fn update_menu(
             });
         }
     }
-    
+    */
     /////
     
     // LABEL
-
+    
     // PULSE!!!
     let t = time.elapsed_seconds();
     let mut offset = -0.3;
