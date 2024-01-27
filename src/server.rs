@@ -79,8 +79,8 @@ fn main(){
 
         state_and_status_checker,
         check_bullet_collisions_and_lifetime,
-        check_ship_collisions_and_lifetime,
-        
+        check_ship_force_events,
+        check_pickups_collisions_and_lifetime,
 
         (asteroids_refiller, snap_objects, update_chunks_around, send_message_system).chain(),
 

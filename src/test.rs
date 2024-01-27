@@ -43,10 +43,10 @@ fn setup(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ){
-    spawn_powerup( PowerUPType::Repair, Vec3::X * -80., &mut commands,&mut meshes, &mut materials, &asset_server);
-    spawn_powerup( PowerUPType::DoubleDamage, Vec3::X * -40., &mut commands,&mut meshes, &mut materials, &asset_server);
-    spawn_powerup( PowerUPType::Haste, Vec3::X * 0., &mut commands,&mut meshes, &mut materials, &asset_server);
-    spawn_powerup( PowerUPType::SuperShield, Vec3::X * 40., &mut commands,&mut meshes, &mut materials, &asset_server);
-    spawn_powerup( PowerUPType::Invisibility, Vec3::X * 80., &mut commands,&mut meshes, &mut materials, &asset_server);
+    spawn_powerup( PowerUPType::Repair, Vec3::X * -80., &mut commands,&mut meshes, &mut materials, &asset_server, 0);
+    spawn_powerup( PowerUPType::ExtraDamage, Vec3::X * -40., &mut commands,&mut meshes, &mut materials, &asset_server, 0);
+    spawn_powerup( PowerUPType::Haste, Vec3::X * 0., &mut commands,&mut meshes, &mut materials, &asset_server, 0);
+    spawn_powerup( PowerUPType::SuperShield, Vec3::X * 40., &mut commands,&mut meshes, &mut materials, &asset_server, 0);
+    spawn_powerup( PowerUPType::Invisibility, Vec3::X * 80., &mut commands,&mut meshes, &mut materials, &asset_server, 0);
 }
 

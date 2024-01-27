@@ -68,7 +68,7 @@ pub struct ObjectData{
 
 
 #[derive(Serialize, Deserialize)]
-pub struct MyData{
+pub struct MyData{ 
     pub color: [f32; 3],
     pub style: u8,
     pub name: String,
@@ -195,18 +195,18 @@ pub enum ApplyCameraSettings{
 pub struct GlobalConfig{
     // MAP
     pub last_id: u64,
-
     pub map_size_chunks: Vec2, //   !!!MUST BE INTEGER!!!
     pub single_chunk_size: Vec2, // !!!MUST BE INTEGER!!!
     pub asteroids_per_chunk: f32,
 
-    pub debug_render: bool,
+    pub debug_render: bool, // todo: move to ?
     // OBJECTS
     pub asteroid_hp: [i8; 3],
     pub player_hp: f32,
     pub player_shields: f32,
     pub shield_recharge_per_sec: f32,
     pub bullet_damage: f32,
+    pub powerup_drop_chances: f32,
     // TIMERS
     pub dash_cd_secs: f32,
     pub dash_time: f32,
@@ -216,7 +216,16 @@ pub struct GlobalConfig{
     pub spawn_immunity_time: f32,
     pub respawn_time_secs: f32,
 
+    pub effects_repair_amount: f32,
+    pub effects_extradamage_secs: f32,
+    pub effects_extradamage_amount: f32,
+    pub effects_haste_secs: f32,
+    pub effects_haste_amount: f32,
+    pub effects_supershield_secs: f32,
+    pub effects_supershield_amount: f32,
+    pub effects_invisibility_secs: f32,
 }
+
 impl Default for GlobalConfig {
     fn default() -> Self {
         GlobalConfig{
@@ -231,12 +240,44 @@ impl Default for GlobalConfig {
             shield_recharge_per_sec: 10.,
             shield_recharge_delay: 5.,
             bullet_damage: 200.,
-            dash_cd_secs: 3.,
+            powerup_drop_chances: 1.0,
+            dash_cd_secs: 0.,
             dash_time: 1.,
             shoot_cd_secs: 0.5,
             bullet_lifetime_secs: 10.,
             spawn_immunity_time: 2.,
-            respawn_time_secs: 5.
+            respawn_time_secs: 5.,
+
+            effects_repair_amount: 100.,
+            effects_extradamage_secs: 15.,
+            effects_extradamage_amount: 1.5,
+            effects_haste_secs: 15.,
+            effects_haste_amount: 2.,
+            effects_supershield_secs: 30.,
+            effects_supershield_amount: 50.,
+            effects_invisibility_secs: 20.,
+        }
+    }
+}
+
+impl GlobalConfig {
+    pub fn get_power_up_effect(&self, poweup_type: PowerUPType) -> PowerUPEffect {
+        match poweup_type {
+            PowerUPType::ExtraDamage => {
+                PowerUPEffect{seconds: self.effects_extradamage_secs, value: self.effects_extradamage_amount}
+            },
+            PowerUPType::Haste => {
+                PowerUPEffect{seconds: self.effects_haste_secs, value: self.effects_haste_amount}
+            },
+            PowerUPType::Invisibility => {
+                PowerUPEffect{seconds: self.effects_invisibility_secs, value: 0.}
+            },
+            PowerUPType::Repair => {
+                PowerUPEffect{seconds: 0., value: self.effects_repair_amount}
+            },
+            PowerUPType::SuperShield => {
+                PowerUPEffect{seconds: self.effects_supershield_secs, value: self.effects_supershield_amount}
+            }
         }
     }
 }
@@ -329,7 +370,7 @@ impl Puppet{
 */
 
 #[derive (Component, Clone)]
-pub struct Chunk{pub pos: Vec2}
+pub struct Chunk{pub pos: Vec2} // todo: do smt
 
 #[derive (Component)]
 pub struct Bullet;
@@ -339,6 +380,9 @@ pub struct Asteroid;
 
 #[derive (Component)]
 pub struct Ship;
+
+#[derive(Component)]
+pub struct PowerUP;
 
 #[derive(Component)]
 pub struct PowerUPImage;
@@ -368,7 +412,7 @@ pub enum ObjectType{
 #[derive(Hash, PartialEq, Eq)]
 pub enum PowerUPType{
     Repair, // +--
-    DoubleDamage, // +--
+    ExtraDamage, // +--
     Haste, //+--
     SuperShield, //+--
     Invisibility, //+--
@@ -387,9 +431,15 @@ pub enum ShipState{
 #[derive(Serialize, Deserialize)]
 #[derive (Clone)]
 pub struct ShipStatuses{
-    pub current: HashMap<PowerUPType, f32>
+    pub current: HashMap<PowerUPType, PowerUPEffect>
 }
 
+#[derive(Serialize, Deserialize)]
+#[derive (Clone)]
+pub struct PowerUPEffect{
+    seconds: f32,
+    value: f32
+}
 
 #[derive(Component)]
 pub struct ShipPreview;

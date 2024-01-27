@@ -5,7 +5,7 @@ use bevy::{
     sprite::{MaterialMesh2dBundle, Mesh2dHandle}, render::{render_resource::{PrimitiveTopology, Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages}, mesh::Indices, camera::RenderTarget, view::RenderLayers}, utils::{HashMap, hashbrown::HashSet}, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::{BloomSettings, BloomCompositeMode}, clear_color::ClearColorConfig}, window::WindowResized,
 };
 
-use bevy_rapier2d::prelude::*;
+use bevy_rapier2d::{prelude::*, rapier::geometry::CollisionEventFlags};
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 
@@ -154,8 +154,7 @@ fn setup_pixel_camera(
     ));
 }
 
-#[allow(dead_code)]
-pub const TARGET_HEIGHT: f32 = 512.; // todo: add setting
+const TARGET_HEIGHT: f32 = 512.; // todo: add setting
 
 #[allow(dead_code)]
 pub fn update_pixel_camera(
@@ -583,7 +582,8 @@ pub fn spawn_powerup(
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<ColorMaterial>>,
     asset_server: &Res<AssetServer>,
-){
+    object_id: u64,
+) -> Entity{
     let mut mesh = Mesh::new(PrimitiveTopology::LineList);
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![
         Vec3{x: 1., y: 1., z: 1.},
@@ -622,7 +622,7 @@ pub fn spawn_powerup(
     )).id();
 
     let image_path = match powerup_type{
-        PowerUPType::DoubleDamage => {"powerups/doubledamage.png"},
+        PowerUPType::ExtraDamage => {"powerups/extradamage.png"}, // todo: rename
         PowerUPType::Haste => {"powerups/haste.png"}
         PowerUPType::Repair => {"powerups/repair.png"},
         PowerUPType::SuperShield => {"powerups/supershield.png"},
@@ -638,16 +638,23 @@ pub fn spawn_powerup(
         },
         PowerUPImage
     )).id();
-    commands.spawn((
+    return commands.spawn((
         Object{
-            id: 0,
-            object_type: ObjectType::PickUP { pickup_type: PowerUPType::DoubleDamage },
+            id: object_id,
+            object_type: ObjectType::PickUP { pickup_type: powerup_type },
         },
+        PowerUP,
+        RigidBody::Fixed,
+        ActiveEvents::COLLISION_EVENTS,
+        Sensor,
+        Collider::ball(10.),
+        Velocity::zero(),
         VisibilityBundle::default(),
         TransformBundle::default()
-    )).insert(Transform::from_translation(pos).with_scale(Vec3::splat(1.))).add_child(powerup_image).add_child(powerup_box);
+    )).insert(Transform::from_translation(pos).with_scale(Vec3::splat(1.))).add_child(powerup_image).add_child(powerup_box).id();
 }
 
+#[allow(dead_code)]
 pub fn update_powerups_animation(
     mut images_q: Query<&mut Transform, (With<PowerUPImage>, Without<Object>, Without<PowerUPCube>)>,
     mut cube_q: Query<&mut Transform, (With<PowerUPCube>, Without<Object>, Without<PowerUPImage>)>,
@@ -664,7 +671,7 @@ pub fn update_powerups_animation(
     }
 }
 
-pub fn debug_chunk_render(
+pub fn debug_chunk_render( // todo: do something :D
     chunks_q: Query<(&Chunk, Entity)>,
     mut cfg: ResMut<GlobalConfig>,
     asset_server: Res<AssetServer>,
@@ -747,6 +754,7 @@ pub fn debug_chunk_render(
     }
 }
 
+#[allow(dead_code)]
 pub fn snap_objects(                                                     
     cfg: ResMut<GlobalConfig>,
     mut objects: Query<&mut Transform, (With<Object>, Without<Puppet>)>, // ADD SNAPPING TO PUPPETS
@@ -764,9 +772,9 @@ pub fn snap_objects(
         } else {
             transform.translation.y = transform.translation.y % ysize;
         }
-        //transform.translation.x = transform.translation.x % xsize;
     }
 }
+
 
 pub fn update_chunks_around(
     loaded_chunks: Res<LoadedChunks>,
@@ -777,7 +785,7 @@ pub fn update_chunks_around(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 
-    chunks_q: Query<(&Chunk, Entity)>,
+    chunks_q: Query<(&Chunk, Entity)>, // todo: do smt with chunk
     mut cfg: ResMut<GlobalConfig>,
 
     mut puppet_objects: Query<(&mut Transform, &Object, &Puppet, &mut Velocity, Entity), (With<Object>, With<Puppet>)>,
@@ -924,7 +932,18 @@ pub fn update_chunks_around(
                                 }
                             }
                             ObjectType::PickUP{ pickup_type } => {
-
+                                let entity = spawn_powerup(pickup_type, pos, &mut commands, &mut meshes, &mut materials, &asset_server, object.id);
+                                commands.entity(entity).insert((
+                                    **velocity,
+                                    Transform::from_translation(pos),
+                                    ActiveEvents::CONTACT_FORCE_EVENTS,
+                                    Puppet {
+                                        id: object.id,
+                                        binded_chunk: Chunk {
+                                            pos: *chunk
+                                        }
+                                    },
+                                ));
                             }
                         }
                     }
@@ -984,12 +1003,6 @@ pub fn spawn_bullet(
 }
 
 
-
-pub fn check_status_lifetime(){} // todo (will be moved to ships fn!)
-
-pub fn check_pickups_collisions_and_lifetime(){} // todo
-
-
 pub fn asteroids_refiller(
     mut objects_distribution: ResMut<ObjectsDistribution>,
     mut cfg: ResMut<GlobalConfig>,
@@ -1011,7 +1024,7 @@ pub fn asteroids_refiller(
 
 
 
-pub fn get_pos_to_spawn( // so unpotimized!!! ~O(2n + m)  (make fast version) time usage might be insane!
+pub fn get_pos_to_spawn( // todo: make fast version, time usage might be insane!
     objects_distribution: &mut ResMut<ObjectsDistribution>,
     cfg: &ResMut<GlobalConfig>,
 ) -> Vec2 {
@@ -1163,22 +1176,23 @@ pub fn get_pos_to_spawn( // so unpotimized!!! ~O(2n + m)  (make fast version) ti
 
 
 pub fn check_bullet_collisions_and_lifetime(
-    mut bullets_data: Query<(Entity, &Transform, &mut Bullet, &mut Object), (With<Bullet>, Without<Puppet>)>,
+    mut bullets_data: Query<(Entity, &Transform, &mut Object), (With<Bullet>, Without<Puppet>)>,
     rapier_context: Res<RapierContext>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     /*mut query_asteroid: Query<(&mut Asteroid, &Velocity, &mut Object), Without<Puppet>>,
     mut query_ship: Query<&mut Object, With<Ship>>,*/
-    mut states_q: Query<&ShipState, Without<Puppet>>,
+    states_q: Query<&ShipState, Without<Puppet>>,
     mut query_object: Query<(&mut Object, &mut Velocity), (Without<Puppet>, Without<Bullet>)>,
     mut cfg: ResMut<GlobalConfig>,
+    asset_server: Res<AssetServer>,
     time: Res<Time>
 ){
     let mut to_despawn = HashSet::new();
-    for (bullet_entity, transform,  mut bullet, mut object) in bullets_data.iter_mut() {
+    for (bullet_entity, transform, mut object) in bullets_data.iter_mut() { // todo: may crash when two bullets "touches" same asteroid at the same tick. fix!
         match object.object_type{
-            ObjectType::Bullet { mut previous_position, spawn_time, owner} => {
+            ObjectType::Bullet { previous_position, spawn_time, owner} => {
                 // HANDLE COLLISIONS
                 let previous_pos = previous_position.translation;
                 let previous_pos = Vec2::new(previous_pos.x, previous_pos.y);
@@ -1267,6 +1281,17 @@ pub fn check_bullet_collisions_and_lifetime(
                                                 cfg.get_asteroid_hp(new_seed_2)
                                             );
                                         }
+                                        // spawn powerup
+                                        if rand::random::<f32>() < cfg.powerup_drop_chances{
+                                            let powerup_type = match rand::thread_rng().gen_range(0..=4){
+                                                0 => {PowerUPType::Repair}
+                                                1 => {PowerUPType::ExtraDamage}
+                                                2 => {PowerUPType::Haste}
+                                                3 => {PowerUPType::SuperShield}
+                                                _ => {PowerUPType::Invisibility}
+                                            };
+                                            spawn_powerup(powerup_type, transform.translation, &mut commands, &mut meshes, &mut materials, &asset_server, cfg.new_id());
+                                        }
                                     };
                                     return false
                                 }
@@ -1347,13 +1372,19 @@ pub fn check_bullet_collisions_and_lifetime(
     }
 }
 
-pub fn check_ship_collisions_and_lifetime(
+pub fn check_ship_force_events( // todo: take damage on colide with asteroid
     mut commands: Commands,
     mut query_ship: Query<(Entity, &mut Object), (With<Ship>, Without<Puppet>, Without<Bullet>)>,
     mut cfg: ResMut<GlobalConfig>,
+    mut contact_force_events: EventReader<ContactForceEvent>,
     time: Res<Time>
 ){
-    for (ship_entity, mut object) in query_ship.iter_mut() { // check if respawn needed
+    for contact_force_event in contact_force_events.read() {
+        println!("Received contact force event: {:?}", contact_force_event);
+    }
+    // ContactForceEventThreshold
+
+    /*for (ship_entity, mut object) in query_ship.iter_mut() { // check if respawn needed
         /*match object.object_type{
             ObjectType::Ship { style, color, shields: _, hp: _, death_time } => {
                 if time.elapsed().as_secs_f32() - death_time > cfg.respawn_time_secs {
@@ -1368,6 +1399,57 @@ pub fn check_ship_collisions_and_lifetime(
             },
             _ => {}
         }*/
-    }
+    }*/
 }
 
+pub fn check_ship_effects(
+
+){
+
+}
+
+pub fn check_pickups_collisions_and_lifetime(
+    mut collision_events: EventReader<CollisionEvent>,
+    mut ship_q: Query<&mut ShipStatuses, (With<Ship>, Without<Puppet>)>,
+    mut powerup_q: Query<(Entity, &Object), (With<PowerUP>, Without<Puppet>)>,
+    mut commands: Commands,
+    cfg: Res<GlobalConfig>,
+){
+    for collision_event in collision_events.read() {
+        match *collision_event { // todo: may crash when two ships "touches" same pup at the same tick. fix!
+            CollisionEvent::Started(e0, e1, flags) => {
+                match flags {
+                    CollisionEventFlags::SENSOR => {}
+                    _ => {continue;}
+                }
+                let e0_ship = ship_q.get(e0);
+                let e1_ship = ship_q.get(e1);
+                let e0_powerup = powerup_q.get(e0);
+                let e1_powerup = powerup_q.get(e1);
+
+                let (mut ship_effects, powerup) = 
+                    if e0_ship.is_ok() && e1_powerup.is_ok() {(ship_q.get_mut(e0).unwrap(), e1_powerup.unwrap())}
+                else
+                    if e0_powerup.is_ok() && e1_ship.is_ok() {(ship_q.get_mut(e1).unwrap(), e0_powerup.unwrap())}
+                else
+                    {continue;};
+                let (powerup_e, powerup_object) = powerup;
+
+                
+                
+                match powerup_object.object_type {
+                    ObjectType::PickUP { pickup_type } => {
+                        ship_effects.current.insert(pickup_type, cfg.get_power_up_effect(pickup_type));
+                        println!("zxc! {}", ship_effects.current.len());
+                    }
+                    _ => {}
+                }
+                
+                commands.entity(powerup_e).despawn_recursive();
+            },
+            _ => {/* pass */},
+        }
+    }
+
+    
+} // todo

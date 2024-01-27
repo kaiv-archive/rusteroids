@@ -1,9 +1,9 @@
 use std::{net::UdpSocket, time::SystemTime, f32::consts::PI};
 
-use bevy::{prelude::*, DefaultPlugins, utils::{HashMap, HashSet}, window::WindowResized, transform};
+use bevy::{prelude::*, render::{mesh::Indices, render_resource::PrimitiveTopology}, sprite::{MaterialMesh2dBundle, Mesh2dBindGroup, Mesh2dHandle}, transform, utils::{HashMap, HashSet}, window::WindowResized, DefaultPlugins};
 
 use bevy_inspector_egui::{quick::WorldInspectorPlugin, bevy_egui::EguiPlugin};
-use bevy_rapier2d::{prelude::Velocity, na::Translation};
+use bevy_rapier2d::{na::Translation, plugin::{NoUserData, RapierPhysicsPlugin}, prelude::Velocity, render::{DebugRenderContext, RapierDebugRenderPlugin}};
 use bevy_renet::{renet::{*, transport::*}, transport::NetcodeClientPlugin, RenetClientPlugin};
 use rand::Rng;
 use renet_visualizer::RenetServerVisualizer;
@@ -25,10 +25,11 @@ fn main(){
     app.add_state::<ClientState>();
     // todo: USE RAPIER PHYSICS ON CLIENT???
     app.add_plugins(RenetClientPlugin);
+    app.add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0));
+    app.add_plugins(RapierDebugRenderPlugin::default());
     app.add_plugins(NetcodeClientPlugin);
     app.insert_resource(RenetServerVisualizer::<200>::default());          
-    let client = RenetClient::new(ConnectionConfig::default());
-    app.insert_resource(client);
+    app.insert_resource(RenetClient::new(ConnectionConfig::default()));
     app.insert_resource(GlobalConfig::default());
     app.insert_resource(ClientsData::default());
     app.insert_resource(LoadedChunks{chunks: vec![]});
@@ -70,7 +71,7 @@ fn main(){
         Update, 
         (
             debug_chunk_render,
-            
+            update_powerups_animation,
             (receive_message_system, snap_objects, update_chunks_around, starfield_update, ship_labels, camera_follow).chain(),
             
             handle_inputs_system,
@@ -378,7 +379,8 @@ fn receive_message_system(
                         }
                     },
                     ObjectType::PickUP{pickup_type} => {
-                        None
+                        let e = spawn_powerup(pickup_type, object_data.translation, &mut commands, &mut meshes, &mut materials, &asset_server, object_data.object.id);
+                        Some((e, object_data.object.id))
                     }
                 };
                 if t.is_some(){
@@ -569,7 +571,6 @@ fn _starfield_update(
     ];
     let weak = 1.5;
     let medium = 2.;
-    let bright = 5.;
     let insane = 5.;
     let star_classes = [
         StarClass{ // sapphire
@@ -753,7 +754,7 @@ fn starfield_update(
     let curr_stars_count = star_q.into_iter().len();
     let mut rng = rand::thread_rng();
     let texture_path = [
-        "dust.png"
+        "dust.png" // todo: upper dust layer might move faster than player!
     ];
     
 
@@ -813,15 +814,41 @@ fn starfield_update(
 #[derive(Component)]
 struct ShipLabel{entity_id: u64}
 
+#[derive(Component)]
+struct ShieldBar;
+
+#[derive(Component)]
+struct HPBar;
+
+
+
+
+
+
+
+#[derive(Clone)]
+struct CachedMeshes{
+    hp: Mesh,
+    shield: Mesh,
+    outline: Mesh,
+    bg: Mesh
+}
+
+
 fn ship_labels( // todo: maybe add it as childs to ships? // add handle for every puppet
     cfg: Res<GlobalConfig>,
     mut commands: Commands,
-    ships_q: Query<(&Object, &mut Transform, &Visibility, Entity), (With<Ship>, Without<ShipLabel>, Without<Puppet>)>,
-    ships_puppets_q: Query<(&Object, &mut Transform, &Visibility, Entity), (With<Ship>, Without<ShipLabel>, With<Puppet>)>,
-    mut labels_q: Query<(&ShipLabel, &mut Transform, &mut Text, Entity), (With<ShipLabel>, Without<Ship>)>,  
+    ships_q: Query<(&Object, &mut Transform, &Visibility, Entity), (With<Ship>, Without<ShipLabel>, Without<Puppet>, Without<HPBar>, Without<ShieldBar>)>,
+    ships_puppets_q: Query<(&Object, &mut Transform, &Visibility, Entity), (With<Ship>, Without<ShipLabel>, With<Puppet>, Without<HPBar>, Without<ShieldBar>)>,
+    mut labels_q: Query<(&ShipLabel, &mut Transform, &mut Text, Entity, &Children), (With<ShipLabel>, Without<Ship>, Without<HPBar>, Without<ShieldBar>)>,  
+    mut hpbar_q: Query<(&mut Transform), (With<HPBar>, Without<ShipLabel>, Without<Ship>, Without<ShieldBar>)>,  
+    mut shieldbar_q: Query<(&mut Transform), (With<ShieldBar>, Without<ShipLabel>, Without<Ship>, Without<HPBar>)>,  
     asset_server: Res<AssetServer>, 
     clients_data: Res<ClientsData>,
     time: Res<Time>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut cached_meshes: Local<Option<CachedMeshes>>
 ){
     let font = asset_server.load("../assets/fonts/VecTerminus12Medium.otf");
     let text_style = TextStyle {
@@ -829,22 +856,51 @@ fn ship_labels( // todo: maybe add it as childs to ships? // add handle for ever
         font_size: 14.0,
         color: Color::WHITE,
     };
-    let hp_text_style = TextStyle {
-        font: font.clone(),
-        font_size: 14.0,
-        color: Color::YELLOW_GREEN,
-    };
-    let shield_text_style = TextStyle {
-        font: font.clone(),
-        font_size: 14.0,
-        color: Color::CYAN,
-    };
+
+    let size = Vec2{x: 50., y: 4.};
+    let line_indices = vec![0, 1, 1, 2, 2, 3, 3, 0];
+    let indices = vec![0, 1, 2, 1, 2, 3];
+    let outline_vertices = vec![
+            Vec3{x: (size.x / 2. + 1.),y: (size.y / 2. + 1.), z:10.},
+            Vec3{x: (size.x / 2. + 1.),y:-(size.y / 2. + 1.), z:10.},
+            Vec3{x:-(size.x / 2. + 1.),y:-(size.y / 2. + 1.), z:10.},
+            Vec3{x:-(size.x / 2. + 1.),y: (size.y / 2. + 1.), z:10.}
+        ];
+    if cached_meshes.is_none(){
+        let mut outline_mesh = Mesh::new(PrimitiveTopology::LineList);
+        outline_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, outline_vertices.clone()); 
+        outline_mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![Color::DARK_GRAY.as_rgba_f32(); 4]); 
+        outline_mesh.set_indices(Some(Indices::U32(line_indices)));
+        let mut outline_mesh_bg = Mesh::new(PrimitiveTopology::TriangleList);
+        outline_mesh_bg.insert_attribute(Mesh::ATTRIBUTE_POSITION, outline_vertices); 
+        outline_mesh_bg.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![Color::BLACK.as_rgba_f32(); 4]); 
+        outline_mesh_bg.set_indices(Some(Indices::U32(indices.clone())));
+
+        let mesh_vertices = vec![
+                Vec3{x: size.x / 2.,y: size.y / 2., z:10.},
+                Vec3{x: size.x / 2.,y:-size.y / 2., z:10.},
+                Vec3{x:-size.x / 2.,y: size.y / 2., z:10.},
+                Vec3{x:-size.x / 2.,y:-size.y / 2., z:10.}
+            ];
+        let mut hp_mesh = Mesh::new(PrimitiveTopology::TriangleList);
+        hp_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, mesh_vertices);
+        hp_mesh.set_indices(Some(Indices::U32(indices)));
+        hp_mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![Color::YELLOW_GREEN.as_rgba_f32(); 4]); 
+        let mut shield_mesh = hp_mesh.clone();
+        shield_mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![Color::CYAN.as_rgba_f32(); 4]); 
+        *cached_meshes = Some(CachedMeshes{
+            hp: hp_mesh,
+            shield: shield_mesh,
+            outline: outline_mesh,
+            bg: outline_mesh_bg
+        });
+    }
     let mut labels = HashMap::new();
-    for (label, transform, text, entity) in labels_q.iter_mut(){
-        labels.insert(label.entity_id, (label, transform, text, entity));
+    for (label, transform, text, entity, children) in labels_q.iter_mut(){
+        labels.insert(label.entity_id, (label, transform, text, entity, children));
     }
     let mut used_labels = HashSet::new();
-    // iterating trough ships, collect data about name, hp and shields; and after iter trough puppets. because puppets doesnt update their hp and shields
+    // iterating trough ships, collect data about name, hp and shields; and after iter trough puppets. because puppets doesnt update their hp and shields, but we need to update its labels
     let mut data_about_ships: HashMap<u64, (String, f32, f32)> = HashMap::new();
     for (object, transform, visibility, e) in ships_q.iter().chain(ships_puppets_q.iter()){ 
         if visibility == Visibility::Hidden {
@@ -868,41 +924,71 @@ fn ship_labels( // todo: maybe add it as childs to ships? // add handle for ever
                     };
                     if labels.contains_key(&id){
                         labels.get_mut(&id).unwrap().1.translation = transform.translation + Vec3::Y * -45. + Vec3::Z * 10.;
-                        labels.get_mut(&id).unwrap().2.sections = vec![
-                            TextSection{
-                                value: format!("{}\n", name),
-                                style: text_style.clone(),
-                            },
-                            TextSection{
-                                value: format!("{}/{}\n", shields, cfg.player_shields),
-                                style: shield_text_style.clone(),
-                            },
-                            TextSection{
-                                value: format!("{}/{}\n", hp, cfg.player_hp),
-                                style: hp_text_style.clone(),
-                            }];
+                        /* UPDATE */
+                        let children = labels.get(&id).unwrap().4;
+                        for e in children.iter(){
+                            let hpbar = hpbar_q.get_mut(*e);
+                            if hpbar.is_ok(){
+                                hpbar.unwrap().scale.x = hp / cfg.player_hp;
+                            }
+                            let shbar = shieldbar_q.get_mut(*e);
+                            if shbar.is_ok(){
+                                shbar.unwrap().scale.x = shields / cfg.player_shields;
+                            }
+                        }
                     } else {
-                        commands.spawn((
+                        let parent = commands.spawn((
                             Text2dBundle {
-                                text: Text::from_sections([
-                                    TextSection{
-                                        value: format!("{}\n", name),
-                                        style: text_style.clone(),
-                                    },
-                                    TextSection{
-                                        value: format!("{}/{}\n", shields, cfg.player_shields),
-                                        style: shield_text_style.clone(),
-                                    },
-                                    TextSection{
-                                        value: format!("{}/{}\n", hp, cfg.player_hp),
-                                        style: hp_text_style.clone(),
-                                    }]),
+                                text: Text::from_section(
+                                        format!("{}\n", name),
+                                        text_style.clone(),
+                                    ),
                                 ..default()
                             },
                             ShipLabel{
                                 entity_id: id
                             },
-                        )).insert(Transform::from_translation(transform.translation + Vec3::Y * -45. + Vec3::Z * 10.));
+                        )).insert(Transform::from_translation(transform.translation + Vec3::Y * -45. + Vec3::Z * 10.)).id();
+                        let cached_meshes = cached_meshes.clone().unwrap();
+                        commands.spawn(MaterialMesh2dBundle {
+                            mesh: Mesh2dHandle(meshes.add(cached_meshes.hp.clone())),
+                            transform: Transform::from_translation(Vec3::Y * -10. + Vec3::Z),
+                            material: materials.add(ColorMaterial::default()),
+                            ..default()
+                        }).insert(HPBar).set_parent(parent);
+                        commands.spawn(MaterialMesh2dBundle {
+                            mesh: Mesh2dHandle(meshes.add(cached_meshes.outline.clone())),
+                            transform: Transform::from_translation(Vec3::Y * -10.),
+                            material: materials.add(ColorMaterial::default()),
+                            ..default()
+                        }).set_parent(parent);
+                        commands.spawn(MaterialMesh2dBundle {
+                            mesh: Mesh2dHandle(meshes.add(cached_meshes.bg.clone())),
+                            transform: Transform::from_translation(Vec3::Y * -10.),
+                            material: materials.add(ColorMaterial::default()),
+                            ..default()
+                        }).set_parent(parent);
+
+                        commands.spawn(MaterialMesh2dBundle {
+                            mesh: Mesh2dHandle(meshes.add(cached_meshes.shield.clone())),
+                            transform: Transform::from_translation(Vec3::Y * -16. + Vec3::Z),
+                            material: materials.add(ColorMaterial::default()),
+                            ..default()
+                        }).insert(ShieldBar).set_parent(parent);
+                        commands.spawn(MaterialMesh2dBundle {
+                            mesh: Mesh2dHandle(meshes.add(cached_meshes.outline.clone())),
+                            transform: Transform::from_translation(Vec3::Y * -16.),
+                            material: materials.add(ColorMaterial::default()),
+                            ..default()
+                        }).set_parent(parent);
+                        commands.spawn(MaterialMesh2dBundle {
+                            mesh: Mesh2dHandle(meshes.add(cached_meshes.bg.clone())),
+                            transform: Transform::from_translation(Vec3::Y * -16.),
+                            material: materials.add(ColorMaterial::default()),
+                            ..default()
+                        }).set_parent(parent);
+
+                        
                     }
                     used_labels.insert(id);
                 },
@@ -911,7 +997,7 @@ fn ship_labels( // todo: maybe add it as childs to ships? // add handle for ever
         }
     }
     
-    for (id, (_, _, _, e)) in labels.iter(){
-        if !used_labels.contains(id){commands.entity(*e).despawn()};
+    for (id, (_, _, _, e, _)) in labels.iter(){
+        if !used_labels.contains(id){commands.entity(*e).despawn_recursive()};
     }
 }
