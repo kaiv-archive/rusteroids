@@ -265,8 +265,8 @@ fn receive_message_system(
     mut loaded_chunks: ResMut<LoadedChunks>,
     asset_server: Res<AssetServer>,
     time: Res<Time>,
-    death_label_q: Query<Entity, With<DeathLabel>>,
-    mut is_dead: Local<(bool, bool, Vec3)>, // first is current, second is previous val, third is pos
+    mut death_label_q: Query<(Entity, &mut Text), With<DeathLabel>>,
+    mut is_dead: Local<(bool, bool, Vec3, f32)>, // first is current, second is previous val, third is pos
 ){
     if client.is_disconnected(){
         next_state.set(ClientState::Menu);
@@ -306,9 +306,10 @@ fn receive_message_system(
                         let states_and_statuses = object_data.states_and_statuses.clone().unwrap();
                         if object_data.object.id == local_clients_data.get_by_client_id(transport.client_id()).object_id{
                             match states_and_statuses.0 {
-                                ShipState::Dead { death_time: _ } => {
+                                ShipState::Dead { time } => {
                                     (*is_dead).0 = true;
                                     (*is_dead).2 = object_data.translation;
+                                    (*is_dead).3 = time;
                                     commands.entity(e).insert(Visibility::Hidden);
                                 }
                                 _ => {
@@ -407,16 +408,22 @@ fn receive_message_system(
             };
             commands.spawn((
                 Text2dBundle{
-                    text: Text::from_section("U ARE DEAD! :D", text_style),
+                    text: Text::from_sections([
+                        TextSection{value: "U ARE DEAD! :D".into(), style: text_style.clone()},
+                        TextSection{value: format!("\n{}", (cfg.respawn_time_secs - is_dead.3).round() as i32).into(), style: text_style}
+                    ]).with_alignment(TextAlignment::Center),
                     transform: Transform::from_translation(is_dead.2.truncate().extend(100.)),
                     ..default()
                 },
                 DeathLabel
             ));
         } else {
-            for e in death_label_q.iter(){
-                commands.entity(e).despawn();
-            }
+                commands.entity(death_label_q.single().0).despawn();
+        }
+    } else {
+        if (*is_dead).0 {
+            let (_, mut text) = death_label_q.single_mut();
+            text.sections.get_mut(1).unwrap().value = format!("\n{}", (cfg.respawn_time_secs - is_dead.3).round() as i32);
         }
     }
     (*is_dead).1 = (*is_dead).0;
@@ -427,21 +434,6 @@ fn receive_message_system(
             Message::OnConnect{clients_data, config, ship_object_id} => {
                 *local_clients_data = clients_data;
                 *cfg = config;
-                /*println!("spawned new ship!");
-                let player_data = local_clients_data.get_by_client_id(transport.client_id());
-            
-                let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, player_data);
-                println!("<init> SPAWNED SHIP FOR {} WITH ID {} -> E {:?}", player_data.client_id, player_data.object_id, entity);
-                //commands.entity(*cached_entities.get(&0).unwrap()).insert(Object{id: ship_object_id, object_type: ObjectType::Ship});
-                commands.entity(entity).insert((
-                    CameraFollow,
-                    Object{
-                        id: ship_object_id,
-                        object_type: ObjectType::Ship
-                    },
-                ));*/
-                
-
                 for x in -1..(cfg.map_size_chunks.x as i32 + 1){ // include shadow chunks
                     for y in -1..(cfg.map_size_chunks.y as i32 + 1){
                         loaded_chunks.chunks.push(Chunk { pos: Vec2::from((x as f32, y as f32)) });
@@ -811,6 +803,21 @@ fn starfield_update(
     }
 }
 
+
+
+
+
+
+
+#[derive(Component)]
+struct StatusBar{binds: HashMap<PowerUPType, Entity>}
+
+impl Default for StatusBar {
+    fn default() -> Self {
+        StatusBar{binds: HashMap::new()}
+    }
+}
+
 #[derive(Component)]
 struct ShipLabel{entity_id: u64}
 
@@ -820,12 +827,6 @@ struct ShieldBar;
 #[derive(Component)]
 struct HPBar;
 
-
-
-
-
-
-
 #[derive(Clone)]
 struct CachedMeshes{
     hp: Mesh,
@@ -834,15 +835,17 @@ struct CachedMeshes{
     bg: Mesh
 }
 
-
 fn ship_labels( // todo: maybe add it as childs to ships? // add handle for every puppet
     cfg: Res<GlobalConfig>,
     mut commands: Commands,
-    ships_q: Query<(&Object, &mut Transform, &Visibility, Entity), (With<Ship>, Without<ShipLabel>, Without<Puppet>, Without<HPBar>, Without<ShieldBar>)>,
-    ships_puppets_q: Query<(&Object, &mut Transform, &Visibility, Entity), (With<Ship>, Without<ShipLabel>, With<Puppet>, Without<HPBar>, Without<ShieldBar>)>,
+    ships_q: Query<(&Object, &mut Transform, &ShipState, &ShipStatuses, Entity), (With<Ship>, Without<ShipLabel>, Without<Puppet>, Without<HPBar>, Without<ShieldBar>)>,
+    ships_puppets_q: Query<(&Object, &mut Transform, &ShipState, &ShipStatuses, Entity), (With<Ship>, Without<ShipLabel>, With<Puppet>, Without<HPBar>, Without<ShieldBar>)>,
     mut labels_q: Query<(&ShipLabel, &mut Transform, &mut Text, Entity, &Children), (With<ShipLabel>, Without<Ship>, Without<HPBar>, Without<ShieldBar>)>,  
-    mut hpbar_q: Query<(&mut Transform), (With<HPBar>, Without<ShipLabel>, Without<Ship>, Without<ShieldBar>)>,  
-    mut shieldbar_q: Query<(&mut Transform), (With<ShieldBar>, Without<ShipLabel>, Without<Ship>, Without<HPBar>)>,  
+    mut hpbar_q: Query<&mut Transform, (With<HPBar>, Without<ShipLabel>, Without<Ship>, Without<ShieldBar>)>,  
+    mut shieldbar_q: Query<&mut Transform, (With<ShieldBar>, Without<ShipLabel>, Without<Ship>, Without<HPBar>)>,
+    mut empty_statusbar_q: Query<Entity, With<StatusBar>>, // idk why Option<StatusBar> is not working
+    mut statusbar_q: Query<(Entity, &mut StatusBar, &Children), With<StatusBar>>,
+    mut status_q: Query<&PowerUPType>,
     asset_server: Res<AssetServer>, 
     clients_data: Res<ClientsData>,
     time: Res<Time>,
@@ -850,6 +853,10 @@ fn ship_labels( // todo: maybe add it as childs to ships? // add handle for ever
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut cached_meshes: Local<Option<CachedMeshes>>
 ){
+    /*for i in ships_q.iter() {
+        println!("len is {:?}", i.3.current.len());
+    }*/
+    
     let font = asset_server.load("../assets/fonts/VecTerminus12Medium.otf");
     let text_style = TextStyle {
         font: font.clone(),
@@ -902,10 +909,9 @@ fn ship_labels( // todo: maybe add it as childs to ships? // add handle for ever
     let mut used_labels = HashSet::new();
     // iterating trough ships, collect data about name, hp and shields; and after iter trough puppets. because puppets doesnt update their hp and shields, but we need to update its labels
     let mut data_about_ships: HashMap<u64, (String, f32, f32)> = HashMap::new();
-    for (object, transform, visibility, e) in ships_q.iter().chain(ships_puppets_q.iter()){ 
-        if visibility == Visibility::Hidden {
-            continue;
-        };
+    for (object, transform, state, statuses, e) in ships_q.iter().chain(ships_puppets_q.iter()){ 
+        match state {ShipState::Dead { time: _ } => {continue;} _ => {}}; // labels only for alive!
+
         let id = e.to_bits();
         let data = clients_data.get_option_by_object_id(object.id);
         if data.is_some(){
@@ -926,16 +932,87 @@ fn ship_labels( // todo: maybe add it as childs to ships? // add handle for ever
                         labels.get_mut(&id).unwrap().1.translation = transform.translation + Vec3::Y * -45. + Vec3::Z * 10.;
                         /* UPDATE */
                         let children = labels.get(&id).unwrap().4;
+                        
+                        
                         for e in children.iter(){
+                            commands.entity(*e);
                             let hpbar = hpbar_q.get_mut(*e);
                             if hpbar.is_ok(){
                                 hpbar.unwrap().scale.x = hp / cfg.player_hp;
                             }
+
+
                             let shbar = shieldbar_q.get_mut(*e);
                             if shbar.is_ok(){
                                 shbar.unwrap().scale.x = shields / cfg.player_shields;
                             }
+
+                            let empty_statusbar = empty_statusbar_q.get_mut(*e);
+                            let statusbar = statusbar_q.get_mut(*e);
+
+
+                            if statusbar.is_ok() || empty_statusbar.is_ok(){
+                                
+                                let (e, mut icons, children) = if statusbar.is_ok() {
+                                    let (e, i, c) = statusbar.unwrap();
+                                    (e, Some(i), Some(c))
+                                } else {
+                                    (empty_statusbar.unwrap(), None, None)
+                                };
+
+                                let mut iterated = HashSet::new();
+                                let mut existing = HashSet::new();
+
+                                //let mut to_rem = HashSet::new();
+                                if children.is_some() {
+                                    for c in children.unwrap().iter(){
+                                        let status = status_q.get(*c);
+                                        if status.is_ok(){
+                                            let existing_status = status.unwrap();
+                                            existing.insert(existing_status);
+                                        }
+                                    }
+                                }
+                                //println!("ex {}", existing.len());
+                                for (status_type, effect) in statuses.current.iter(){
+                                    
+                                    iterated.insert(status_type);
+                                    if !existing.contains(status_type){
+                                        // spawn
+                                        println!("spawned!");
+                                        commands.spawn((
+                                            SpriteBundle {
+                                                texture: asset_server.load(status_type.texture_path()),
+                                                transform: Transform::from_xyz(0., 0., 0.01).with_scale(Vec3::splat(1.2)),
+                                                ..default()
+                                            },
+                                            status_type.clone(),
+                                            Name::new("ICON"),
+                                        )).set_parent(e);
+                                    } else {
+                                        // update
+                                        
+                                    }
+                                } 
+                                for status in existing {
+                                    if !iterated.contains(status){
+                                        //despawn
+                                        
+                                    }
+                                }
+
+
+                                    //cfg.get_power_up_effect(status_type);
+                                    
+                                    /*SpriteBundle {
+                                        texture: asset_server.load(powerup_type.texture_path()),
+                                        transform: Transform::from_xyz(0., 0., 0.01).with_scale(Vec3::splat(1.2)),
+                                        ..default()
+                                    }*/
+                                
+                            };
                         }
+                        
                     } else {
                         let parent = commands.spawn((
                             Text2dBundle {
@@ -987,8 +1064,12 @@ fn ship_labels( // todo: maybe add it as childs to ships? // add handle for ever
                             material: materials.add(ColorMaterial::default()),
                             ..default()
                         }).set_parent(parent);
-
-                        
+                        commands.spawn((
+                            StatusBar::default(),
+                            TransformBundle::default(),
+                            VisibilityBundle::default(),
+                            Name::new("ICONBAR"),
+                        )).insert(Transform::from_translation(Vec3::Y * -24.)).set_parent(parent);
                     }
                     used_labels.insert(id);
                 },

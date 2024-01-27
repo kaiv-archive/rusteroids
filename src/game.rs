@@ -140,7 +140,8 @@ fn setup_pixel_camera(
             },
             transform: Transform::from_xyz(0.0, 0.0, 15.0).looking_at(Vec3::ZERO, Vec3::Y),
             ..default()
-        }, second_pass_layer,
+        },
+        second_pass_layer,
     ));
     commands.spawn((
         SpriteBundle {
@@ -621,18 +622,11 @@ pub fn spawn_powerup(
         PowerUPCube
     )).id();
 
-    let image_path = match powerup_type{
-        PowerUPType::ExtraDamage => {"powerups/extradamage.png"}, // todo: rename
-        PowerUPType::Haste => {"powerups/haste.png"}
-        PowerUPType::Repair => {"powerups/repair.png"},
-        PowerUPType::SuperShield => {"powerups/supershield.png"},
-        PowerUPType::Invisibility => {"powerups/invisibility.png"},
-    };
-    
+
 
     let powerup_image = commands.spawn((
         SpriteBundle {
-            texture: asset_server.load(image_path),
+            texture: asset_server.load(powerup_type.texture_path()),
             transform: Transform::from_xyz(0., 0., 0.01).with_scale(Vec3::splat(1.2)),
             ..default()
         },
@@ -1307,7 +1301,7 @@ pub fn check_bullet_collisions_and_lifetime(
                                                 return false
                                             }
                                         },
-                                        ShipState::Dead { death_time: _ } => {
+                                        ShipState::Dead { time: _ } => {
                                             return true
                                         },
                                     }
@@ -1329,7 +1323,7 @@ pub fn check_bullet_collisions_and_lifetime(
                                             let mut object_copy = object.clone();
                                             object_copy.object_type = ObjectType::Ship { style , color,  shields, hp };
                                             commands.entity(entity).insert((
-                                                ShipState::Dead { death_time: time.elapsed_seconds() },
+                                                ShipState::Dead { time: 0. },
                                                 //Visibility::Hidden,
                                                 ColliderDisabled,
                                                 Velocity::zero(),

@@ -370,7 +370,7 @@ fn send_message_system(
                                 match object_data.object.object_type{
                                     ObjectType::Ship { style: _, color: _, shields: _, hp: _ } => { // todo: states
                                         match object_data.states_and_statuses.clone().unwrap().0 {
-                                            ShipState::Dead { death_time: _ } => {
+                                            ShipState::Dead { time: _ } => {
                                                 if clients_data.object_id == object_data.object.id { // send only to owner
                                                     personalised_data.push(object_data.clone());   
                                                 }
@@ -443,7 +443,7 @@ fn receive_message_system(
                             
                             //todo: add dash
                             match *state{
-                                ShipState::Dead { death_time: _ } => {} // cant move!
+                                ShipState::Dead { time: _ } => {} // cant move!
                                 ShipState::Dash { start_time, mut direction } => {
                                     
                                     //*velocity.linvel = direction.normalize_or_zero() * 400. * (0.5 + 1. - ((time.elapsed_seconds() - start_time) / cfg.dash_time).powi(3));
@@ -664,29 +664,31 @@ fn state_and_status_checker(
             ShipState::Dash { start_time, direction: _  } => {
 
             },
-            ShipState::Dead { death_time } => {
-                if death_time + cfg.respawn_time_secs < time.elapsed_seconds(){ // respawn
-                let pos = get_pos_to_spawn(&mut objects_distribution, &cfg);
-                let mut respawned_object = object.clone();
-                match object.object_type{
-                    ObjectType::Ship { style, color, shields, hp } => {
-                        respawned_object.object_type = ObjectType::Ship{
-                            style,
-                            color,
-                            shields: cfg.player_shields,
-                            hp: cfg.player_hp,
-                        };
-                        let client_data = clients_data.get_by_object_id(object.id);
-                        commands.entity(client_data.entity).insert((
-                            ShipState::Regular { spawn_time: time.elapsed_seconds() },
-                            respawned_object,
-                            Transform::from_translation(pos.extend(0.))
-                        ));
-                        commands.entity(client_data.entity).remove::<ColliderDisabled>();
+            ShipState::Dead { time: death_time } => {
+                if death_time < cfg.respawn_time_secs{
+                    commands.entity(clients_data.get_by_object_id(object.id).entity).insert(ShipState::Dead { time: death_time + time.delta_seconds() });
+                } else { // respawn
+                    let pos = get_pos_to_spawn(&mut objects_distribution, &cfg);
+                    let mut respawned_object = object.clone();
+                    match object.object_type{
+                        ObjectType::Ship { style, color, shields, hp } => {
+                            respawned_object.object_type = ObjectType::Ship{
+                                style,
+                                color,
+                                shields: cfg.player_shields,
+                                hp: cfg.player_hp,
+                            };
+                            let client_data = clients_data.get_by_object_id(object.id);
+                            commands.entity(client_data.entity).insert((
+                                ShipState::Regular { spawn_time: time.elapsed_seconds() },
+                                respawned_object,
+                                Transform::from_translation(pos.extend(0.))
+                            ));
+                            commands.entity(client_data.entity).remove::<ColliderDisabled>();
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
-            }
             },
         }
         if last_damage_taken.time + cfg.shield_recharge_delay < time.elapsed_seconds(){

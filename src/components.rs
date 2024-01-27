@@ -407,8 +407,9 @@ pub enum ObjectType{
     PickUP{pickup_type: PowerUPType},
 }
 
+#[derive(Component)]
 #[derive(Serialize, Deserialize)]
-#[derive (Clone, Copy)]
+#[derive(Clone, Copy)]
 #[derive(Hash, PartialEq, Eq)]
 pub enum PowerUPType{
     Repair, // +--
@@ -418,6 +419,17 @@ pub enum PowerUPType{
     Invisibility, //+--
 }
 
+impl PowerUPType {
+    pub fn texture_path(&self) -> String {
+        match self {
+            PowerUPType::ExtraDamage => { return "powerups/extradamage.png".to_owned()},
+            PowerUPType::Haste => { return "powerups/haste.png".to_owned()},
+            PowerUPType::Repair => { return "powerups/repair.png".to_owned()},
+            PowerUPType::SuperShield => { return "powerups/supershield.png".to_owned()},
+            PowerUPType::Invisibility => { return "powerups/invisibility.png".to_owned()},
+        };
+    }
+}
 
 #[derive (Component)]
 #[derive(Serialize, Deserialize)]
@@ -425,7 +437,7 @@ pub enum PowerUPType{
 pub enum ShipState{
     Regular{spawn_time: f32}, // spawn_time for imunity
     Dash{start_time: f32, direction: Vec2},
-    Dead{death_time: f32},
+    Dead{time: f32},
 }
 #[derive (Component)]
 #[derive(Serialize, Deserialize)]
