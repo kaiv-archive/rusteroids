@@ -378,7 +378,15 @@ fn send_message_system(
                                                     personalised_data.push(object_data.clone());   
                                                 }
                                             },
-                                            _ => {personalised_data.push(object_data.clone());}
+                                            _ => {
+                                                if object_data.states_and_statuses.clone().unwrap().1.has_invisibility(){
+                                                    if clients_data.object_id == object_data.object.id { // send only to owner
+                                                        personalised_data.push(object_data.clone());   
+                                                    }
+                                                } else {
+                                                    personalised_data.push(object_data.clone());
+                                                }
+                                            }
                                         }
                                     },
                                     _ => {
@@ -425,7 +433,7 @@ fn receive_message_system(
     mut materials: ResMut<Assets<ColorMaterial>>,
     transport: Res<NetcodeServerTransport>,
     mut server_side_varables: Local<ServerSideVarables>,
-    mut ships_q: Query<(&mut Velocity, &Transform, &Object, &mut ShipState), (With<Ship>, Without<Puppet>)>,
+    mut ships_q: Query<(&mut Velocity, &Transform, &Object, &mut ShipState, &ShipStatuses), (With<Ship>, Without<Puppet>)>,
     time: Res<Time>,
     asset_server: Res<AssetServer>,
 ) {
@@ -441,7 +449,7 @@ fn receive_message_system(
                         let res = ships_q.get_mut(client_data.entity);
 
                         if res.is_ok(){
-                            let (mut velocity, transform, object, mut state) = res.unwrap();
+                            let (mut velocity, transform, object, mut state, statuses) = res.unwrap();
 
                             
                             //todo: add dash
@@ -454,24 +462,27 @@ fn receive_message_system(
                                     //*state = ShipState::Dash { start_time: time.elapsed_seconds(), direction: target_direction };
 
                                     // let it be...
-                                    velocity.linvel = init_velocity.normalize_or_zero() * 400. * (0.5 + 1. - ((time.elapsed_seconds() - start_time) / cfg.dash_time).powi(3));
-                                    *state = ShipState::Dash { start_time: start_time, init_velocity: init_velocity };
+                                    velocity.linvel = init_velocity + init_velocity.normalize_or_zero() * cfg.dash_impulse;
+                                    /*velocity.linvel = init_velocity.normalize_or_zero() * 400. * (0.5 + 1. - ((time.elapsed_seconds() - start_time) / cfg.dash_time).powi(3));
+                                    *state = ShipState::Dash { start_time: start_time, init_velocity: init_velocity };*/
 
-                                    
-                                    
                                     if start_time + cfg.dash_time < time.elapsed_seconds(){
                                         *state = ShipState::Regular;
+                                        velocity.linvel = if init_velocity.length_squared() > 300_f32.powi(2) {init_velocity} else {init_velocity.normalize() * 300.}
                                     }
                                 }
                                 ShipState::Regular => {
                                     // MOVES
                                     let mut target_direction = Vec2::ZERO;
-                                    if inputs.up    {target_direction.y += 1.5;} //  || buttons.pressed(MouseButton::Right
-                                    if inputs.down  {target_direction.y -= 0.75;}
+                                    if inputs.up    {target_direction.y += 1.0;} //  || buttons.pressed(MouseButton::Right
+                                    if inputs.down  {target_direction.y -= 1.0;}
                                     if inputs.right {target_direction.x += 1.0;}
                                     if inputs.left  {target_direction.x -= 1.0;}
-                                     
 
+                                    if statuses.has_haste(){
+                                        target_direction *= cfg.effects_haste_amount;
+                                    } 
+                                    
                                     // let it be...
                                     let target_angle = transform.up().truncate().angle_between(inputs.rotation_target);
                                     if !target_angle.is_nan(){
@@ -488,6 +499,7 @@ fn receive_message_system(
                                             if time.elapsed().as_secs_f32() - last_time > cfg.shoot_cd_secs{
                                                 spawn_bullet(
                                                     velocity.linvel + transform.up().truncate() * 1000., 
+                                                    statuses.has_extra_damage(),
                                                     *transform, 
                                                     cfg.new_id(), 
                                                     client_data.object_id, 
@@ -501,6 +513,7 @@ fn receive_message_system(
                                         } else {
                                             spawn_bullet(
                                                 velocity.linvel + transform.up().truncate() * 1000., 
+                                                statuses.has_extra_damage(),
                                                 *transform, 
                                                 cfg.new_id(), 
                                                 client_data.object_id, 
@@ -520,7 +533,7 @@ fn receive_message_system(
                                                 if target_direction == Vec2::ZERO {
                                                     target_direction = Vec2::from_angle(transform.rotation.to_euler(EulerRot::XYZ).2 + PI / 2.);
                                                 }
-                                                *state = ShipState::Dash { start_time: time.elapsed_seconds(), init_velocity: target_direction };
+                                                *state = ShipState::Dash { start_time: time.elapsed_seconds(), init_velocity: target_direction.normalize() * velocity.linvel.length()};
                                                 
                                                 velocity.angvel = 0.;
                                                 
@@ -697,9 +710,11 @@ fn state_and_status_checker(
         let mut to_remove = vec![];
         for (status_type, status_effect) in current.iter_mut() {
             status_effect.seconds -= time.delta_seconds();
-            if status_effect.seconds < 0. {
+            if status_effect.seconds <= 0. {
                 to_remove.push(status_type.clone());
-
+            };
+            if status_effect.value <= 0. {
+                to_remove.push(status_type.clone());
             };
         }
         for t in to_remove{current.remove(&t);}; 

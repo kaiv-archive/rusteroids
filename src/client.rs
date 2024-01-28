@@ -79,7 +79,7 @@ fn main(){
         (
             debug_chunk_render,
             update_powerups_animation,
-            (receive_message_system, snap_objects, update_chunks_around, starfield_update, ship_labels, camera_follow).chain(),
+            (receive_message_system, snap_objects, update_chunks_around, starfield_update, camera_follow, ship_labels).chain(),
             
             handle_inputs_system,
             tab_menu, // todo
@@ -346,9 +346,10 @@ fn receive_message_system(
                         );
                         Some((e, object_data.object.id))
                     },
-                    ObjectType::Bullet { previous_position: _, spawn_time, owner } => {
+                    ObjectType::Bullet { previous_position: _, spawn_time, owner, extra_damage } => {
                         let e = spawn_bullet(
                             object_data.linear_velocity,
+                            extra_damage,
                             Transform::from_translation(object_data.translation).with_rotation(object_data.rotation), 
                             object_data.object.id, 
                             owner, 

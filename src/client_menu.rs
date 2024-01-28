@@ -1,7 +1,6 @@
 use std::{f32::consts::PI, ops::RangeInclusive};
 use bevy::{app::AppExit, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::{BloomCompositeMode, BloomSettings}, clear_color::ClearColorConfig}, prelude::*, render::{camera::RenderTarget, mesh::Indices, render_resource::{Extent3d, PrimitiveTopology, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages}, view::RenderLayers}, sprite::{MaterialMesh2dBundle, Mesh2dHandle}};
 use bevy_egui::{egui::{self, Style, Visuals, epaint::{Shadow, CircleShape}, Color32, Rounding, Align, Stroke, FontId, load::SizedTexture, Slider, TextureId, ComboBox}, EguiContexts, EguiUserTextures};
-use bevy_rapier2d::na::ComplexField;
 use rand::{random, Rng};
 
 use crate::{game::*, game::components::{ConnectProperties, ClientState}};

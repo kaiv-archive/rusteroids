@@ -195,7 +195,7 @@ pub struct GlobalConfig{
 
     pub debug_render: bool, // todo: move to ?
     // OBJECTS
-    pub asteroid_hp: [i8; 3],
+    pub asteroid_hp: [i8; 3], // why i8? oh... number of hits
     pub player_hp: f32,
     pub player_shields: f32,
     pub shield_recharge_per_sec: f32,
@@ -204,6 +204,7 @@ pub struct GlobalConfig{
     // TIMERS
     pub dash_cd_secs: f32,
     pub dash_time: f32,
+    pub dash_impulse: f32,
     pub shoot_cd_secs: f32,
     pub bullet_lifetime_secs: f32,
     pub shield_recharge_delay: f32,
@@ -234,8 +235,9 @@ impl Default for GlobalConfig {
             shield_recharge_delay: 5.,
             bullet_damage: 50.,
             powerup_drop_chances: 1.0,
-            dash_cd_secs: 0., // todo: gui cd
-            dash_time: 1.,
+            dash_cd_secs: 0.5, // todo: gui cd
+            dash_time: 0.12,
+            dash_impulse: 2000.,
             shoot_cd_secs: 0.5,
             bullet_lifetime_secs: 10.,
             spawn_immunity_time: 2.,
@@ -243,7 +245,7 @@ impl Default for GlobalConfig {
 
             effects_repair_amount: 100.,
             effects_extradamage_secs: 3., // 15.,
-            effects_extradamage_amount: 1.5,
+            effects_extradamage_amount: 0.5,
             effects_haste_secs: 3., // 15.,
             effects_haste_amount: 2.,
             effects_supershield_amount: 50.,
@@ -262,7 +264,7 @@ impl GlobalConfig {
                 PowerUPEffect{seconds: self.effects_haste_secs, value: self.effects_haste_amount}
             },
             PowerUPType::Invisibility => {
-                PowerUPEffect{seconds: self.effects_invisibility_secs, value: 0.}
+                PowerUPEffect{seconds: self.effects_invisibility_secs, value: f32::INFINITY}
             },
             PowerUPType::Repair => {
                 PowerUPEffect{seconds: 0., value: self.effects_repair_amount}
@@ -325,7 +327,7 @@ pub struct LoadedChunks{ pub chunks: Vec<Chunk> } // todo: fow what? (debug mayb
 pub struct ObjectsDistribution{
     pub data: HashMap<(u32, u32), (u32, bool, Vec<Vec2>)>
 }
-
+ // todo: delete
 #[derive(Event)]
 pub struct BrokeAsteroid( pub Entity );
 
@@ -395,7 +397,7 @@ pub struct PuppetPlayer;
 
 pub enum ObjectType{
     Asteroid{seed: u64, hp: u8},
-    Bullet{previous_position: Transform, spawn_time: f32, owner: u64},
+    Bullet{previous_position: Transform, spawn_time: f32, owner: u64, extra_damage: bool},
     Ship{style: u8, color: Color, shields: f32, hp: f32},
     PickUP{pickup_type: PowerUPType},
 }
@@ -427,11 +429,11 @@ fn heal(
 #[derive(Clone, Copy)]
 #[derive(Hash, PartialEq, Eq)]
 pub enum PowerUPType{
-    Repair,//-
-    ExtraDamage,//-
-    Haste,//-
-    SuperShield,//-
-    Invisibility,//-
+    Repair,
+    ExtraDamage,
+    Haste,
+    SuperShield,
+    Invisibility,
 }
 
 impl PowerUPType {
@@ -459,6 +461,21 @@ pub enum ShipState{
 #[derive (Clone)]
 pub struct ShipStatuses{
     pub current: HashMap<PowerUPType, PowerUPEffect>
+}
+
+impl ShipStatuses {
+    pub fn has_extra_damage(&self) -> bool{
+        self.current.contains_key(&PowerUPType::ExtraDamage)
+    }
+    pub fn has_haste(&self) -> bool{
+        self.current.contains_key(&PowerUPType::Haste)
+    }
+    pub fn has_super_shield(&self) -> bool{
+        self.current.contains_key(&PowerUPType::SuperShield)
+    }
+    pub fn has_invisibility(&self) -> bool{
+        self.current.contains_key(&PowerUPType::Invisibility)
+    }
 }
 
 #[derive(Serialize, Deserialize)]

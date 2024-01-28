@@ -350,7 +350,7 @@ fn update(
     }
 
     if inp.shoot{
-        spawn_bullet(transform.up().truncate() * 1000. + velocity.linvel, *transform, cfg.new_id(), cfg.new_id(), 3000., &asset_server, &mut commands);
+        spawn_bullet(transform.up().truncate() * 1000. + velocity.linvel, false, *transform, cfg.new_id(), cfg.new_id(), 3000., &asset_server, &mut commands);
     }
     
     let max_linvel = 700.;

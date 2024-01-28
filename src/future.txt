@@ -53,3 +53,4 @@ CLEAN UP
     cache everything
     solve Chunk and (u32, u32) usage! // eq
     split large files // probably i will never do that.
+    time.elapsed_seconds() -> time.delta_seconds()

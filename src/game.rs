@@ -1,4 +1,4 @@
-use std::{f32::consts::PI, hash::Hash};
+use std::f32::consts::PI;
 
 use bevy::{
     prelude::*,
@@ -550,9 +550,10 @@ pub fn spawn_ship(
             },
 
             ShipState::Regular
-        ))
-        .insert(LastDamageTaken{time: 0.})
-        .insert(MaterialMesh2dBundle { //MESH
+        )).insert((
+            LastDamageTaken{time: 0.},
+            Damping { linear_damping: 0.1, angular_damping: 1.0 },
+        )).insert(MaterialMesh2dBundle { //MESH
             
                 mesh: Mesh2dHandle(meshes.add(mesh)),
                 transform: Transform::from_translation(Vec3::ZERO),
@@ -887,8 +888,8 @@ pub fn update_chunks_around(
                                     )
                                 );
                             },
-                            ObjectType::Bullet { previous_position, spawn_time, owner } => {
-                                let entity = spawn_bullet(velocity.linvel, transform.with_translation(pos), object.id, owner, spawn_time, &asset_server, &mut commands);
+                            ObjectType::Bullet { previous_position, spawn_time, owner, extra_damage } => {
+                                let entity = spawn_bullet(velocity.linvel, extra_damage, transform.with_translation(pos), object.id, owner, spawn_time, &asset_server, &mut commands);
                                 commands.entity(entity).insert(
                                     (
                                         Puppet {
@@ -951,6 +952,7 @@ pub fn update_chunks_around(
 
 pub fn spawn_bullet(
     target_velocity: Vec2,
+    extra_damage: bool,
     transform: Transform,
     object_id: u64,
     owner: u64,
@@ -982,7 +984,12 @@ pub fn spawn_bullet(
         ActiveEvents::COLLISION_EVENTS,
         Object{
             id: object_id,
-            object_type: ObjectType::Bullet{previous_position: Transform::from_translation(transform.translation), spawn_time: spawn_time, owner: owner}
+            object_type: ObjectType::Bullet{
+                previous_position: Transform::from_translation(transform.translation),
+                spawn_time: spawn_time,
+                owner: owner,
+                extra_damage: extra_damage
+            }
         },
         Bullet
     ))
@@ -1177,15 +1184,17 @@ pub fn check_bullet_collisions_and_lifetime(
     /*mut query_asteroid: Query<(&mut Asteroid, &Velocity, &mut Object), Without<Puppet>>,
     mut query_ship: Query<&mut Object, With<Ship>>,*/
     states_q: Query<&ShipState, Without<Puppet>>,
+    mut statuses_q: Query<&mut ShipStatuses, Without<Puppet>>,
     mut query_object: Query<(&mut Object, &mut Velocity), (Without<Puppet>, Without<Bullet>)>,
     mut cfg: ResMut<GlobalConfig>,
     asset_server: Res<AssetServer>,
     time: Res<Time>
 ){
     let mut to_despawn = HashSet::new();
+    let mut asteroids_to_split = HashMap::new();
     for (bullet_entity, transform, mut object) in bullets_data.iter_mut() { // todo: may crash when two bullets "touches" same asteroid at the same tick. fix!
         match object.object_type{
-            ObjectType::Bullet { previous_position, spawn_time, owner} => {
+            ObjectType::Bullet { previous_position, spawn_time, owner, extra_damage} => {
                 // HANDLE COLLISIONS
                 let previous_pos = previous_position.translation;
                 let previous_pos = Vec2::new(previous_pos.x, previous_pos.y);
@@ -1194,7 +1203,7 @@ pub fn check_bullet_collisions_and_lifetime(
                 let len = dir.length();
                 let filter = QueryFilter::default();
 
-
+                
                 
                 // check collisions
                 rapier_context.intersections_with_ray(
@@ -1225,66 +1234,7 @@ pub fn check_bullet_collisions_and_lifetime(
                                     
                                     commands.entity(bullet_entity).despawn_recursive();
                                     if hp <= 0{
-                                        commands.entity(entity).despawn_recursive();
-                                        
-                                        /*
-                                            |
-                                            v
-                                        o <- O -> o
-                                        SPLIT ASTEROID
-                                        todo: fix velocity
-                                        todo: fix client lag when asteroid splits
-                                        */
-        
-                                        let current_size = get_asteroid_size(seed);
-                                        if current_size != 1{
-                                            let dir = (hit_point - dir).normalize().perp();
-                                            let dir = Vec3{x: dir.x, y: dir.y, z:0.0};
-                                            let dir1 = dir;
-                                            let dir2 = -dir;
-                                            let vel1 = Velocity{linvel: Vec2{x: velocity.linvel.x + dir1.x * (1. - random::<f32>()) * 50., y: velocity.linvel.y + dir1.x * (1. - random::<f32>()) * 50.}, angvel: velocity.angvel + (1. - random::<f32>() * 4.)};
-                                            let vel2 = Velocity{linvel: Vec2{x: velocity.linvel.x + dir2.x * (1. - random::<f32>()) * 50., y: velocity.linvel.y + dir2.x * (1. - random::<f32>()) * 50.}, angvel: velocity.angvel + (1. - random::<f32>() * 4.)};
-        
-                                            let mut new_seed_1 = random::<u64>();
-                                            while current_size - 1 != get_asteroid_size(new_seed_1){
-                                                new_seed_1 = random::<u64>();
-                                            }
-                                            let mut new_seed_2 = random::<u64>();
-                                            while current_size - 1 != get_asteroid_size(new_seed_2){
-                                                new_seed_2 = random::<u64>();
-                                            }
-                                            spawn_asteroid(
-                                                new_seed_1,
-                                                vel1,
-                                                Transform::from_translation(transform.translation + dir1 * current_size as f32 * 5.),
-                                                &mut meshes,
-                                                &mut materials,
-                                                &mut commands,
-                                                cfg.new_id(),
-                                                cfg.get_asteroid_hp(new_seed_1)
-                                            );
-                                            spawn_asteroid(
-                                                new_seed_2,
-                                                vel2,
-                                                Transform::from_translation(transform.translation + dir2 * current_size as f32 * 5.),
-                                                &mut meshes,
-                                                &mut materials,
-                                                &mut commands,
-                                                cfg.new_id(),
-                                                cfg.get_asteroid_hp(new_seed_2)
-                                            );
-                                        }
-                                        // spawn powerup
-                                        if rand::random::<f32>() < cfg.powerup_drop_chances{
-                                            let powerup_type = match rand::thread_rng().gen_range(0..=4){
-                                                0 => {PowerUPType::Repair}
-                                                1 => {PowerUPType::ExtraDamage}
-                                                2 => {PowerUPType::Haste}
-                                                3 => {PowerUPType::SuperShield}
-                                                _ => {PowerUPType::Invisibility}
-                                            };
-                                            spawn_powerup(powerup_type, transform.translation, &mut commands, &mut meshes, &mut materials, &asset_server, cfg.new_id());
-                                        }
+                                        asteroids_to_split.insert(entity, (seed, hit_point, dir, velocity.clone(), transform));
                                     };
                                     return false
                                 }
@@ -1297,17 +1247,20 @@ pub fn check_bullet_collisions_and_lifetime(
                                             },
                                             _ => {}
                                         }
-                                        commands.entity(entity).insert(LastDamageTaken{time: time.elapsed_seconds()});
-                                        if shields > 0.{
-                                            shields -= cfg.bullet_damage;
-                                            //println!("s {}", shields);
+                                        
+                                        let mut statuses = statuses_q.get_mut(entity).unwrap();
+                                        if statuses.has_super_shield(){
+                                            let overshields = statuses.current.get_mut(&PowerUPType::SuperShield).unwrap();
+                                            overshields.value -= cfg.bullet_damage + extra_damage as i32 as f32 * cfg.effects_extradamage_amount * cfg.bullet_damage;
+                                            overshields.value = if overshields.value > 0. {overshields.value} else {0.};
+                                        } else if shields > 0.{
+                                            shields -= cfg.bullet_damage + extra_damage as i32 as f32 * cfg.effects_extradamage_amount * cfg.bullet_damage;
                                             shields = if shields > 0. {shields} else {0.};
-                                            //println!("s {}", shields);
+                                            commands.entity(entity).insert(LastDamageTaken{time: time.elapsed_seconds()});
                                         } else {                                            
-                                            hp -= cfg.bullet_damage;
-                                            //println!("h {}", hp);
+                                            hp -= cfg.bullet_damage + extra_damage as i32 as f32 * cfg.effects_extradamage_amount * cfg.bullet_damage;
                                             hp = if hp > 0. {hp} else {0.};
-                                            //println!("h {}", hp);
+                                            commands.entity(entity).insert(LastDamageTaken{time: time.elapsed_seconds()});
                                         }
                                         
                                         if hp <= 0. {
@@ -1343,7 +1296,8 @@ pub fn check_bullet_collisions_and_lifetime(
                 object.object_type = ObjectType::Bullet {
                     previous_position: *transform,
                     spawn_time,
-                    owner
+                    owner,
+                    extra_damage
                 };
                 //LIFETIME
                 if time.elapsed().as_secs_f32() - spawn_time > cfg.bullet_lifetime_secs{
@@ -1353,6 +1307,70 @@ pub fn check_bullet_collisions_and_lifetime(
             _ => {}
         }
     }
+    
+    for (e, data) in asteroids_to_split.iter(){
+        let (seed, hit_point, dir, velocity, transform) = data;
+        commands.entity(*e).despawn_recursive();
+        /*
+            |
+            v
+        o <- O -> o
+        SPLIT ASTEROID
+        todo: fix velocity
+        todo: fix client lag when asteroid splits
+        */
+
+        let current_size = get_asteroid_size(*seed);
+        if current_size != 1{
+            let dir = (*hit_point - *dir).normalize().perp();
+            let dir = Vec3{x: dir.x, y: dir.y, z:0.0};
+            let dir1 = dir;
+            let dir2 = -dir;
+            let vel1 = Velocity{linvel: Vec2{x: velocity.linvel.x + dir1.x * (1. - random::<f32>()) * 50., y: velocity.linvel.y + dir1.x * (1. - random::<f32>()) * 50.}, angvel: velocity.angvel + (1. - random::<f32>() * 4.)};
+            let vel2 = Velocity{linvel: Vec2{x: velocity.linvel.x + dir2.x * (1. - random::<f32>()) * 50., y: velocity.linvel.y + dir2.x * (1. - random::<f32>()) * 50.}, angvel: velocity.angvel + (1. - random::<f32>() * 4.)};
+
+            let mut new_seed_1 = random::<u64>();
+            while current_size - 1 != get_asteroid_size(new_seed_1){
+                new_seed_1 = random::<u64>();
+            }
+            let mut new_seed_2 = random::<u64>();
+            while current_size - 1 != get_asteroid_size(new_seed_2){
+                new_seed_2 = random::<u64>();
+            }
+            spawn_asteroid(
+                new_seed_1,
+                vel1,
+                Transform::from_translation(transform.translation + dir1 * current_size as f32 * 5.),
+                &mut meshes,
+                &mut materials,
+                &mut commands,
+                cfg.new_id(),
+                cfg.get_asteroid_hp(new_seed_1)
+            );
+            spawn_asteroid(
+                new_seed_2,
+                vel2,
+                Transform::from_translation(transform.translation + dir2 * current_size as f32 * 5.),
+                &mut meshes,
+                &mut materials,
+                &mut commands,
+                cfg.new_id(),
+                cfg.get_asteroid_hp(new_seed_2)
+            );
+        }
+        // spawn powerup
+        if rand::random::<f32>() < cfg.powerup_drop_chances{
+            let powerup_type = match rand::thread_rng().gen_range(0..=4){
+                0 => {PowerUPType::Repair}
+                1 => {PowerUPType::ExtraDamage}
+                2 => {PowerUPType::Haste}
+                3 => {PowerUPType::SuperShield}
+                _ => {PowerUPType::Invisibility}
+            };
+            spawn_powerup(powerup_type, transform.translation, &mut commands, &mut meshes, &mut materials, &asset_server, cfg.new_id());
+        }
+    }
+    
     for e in to_despawn.iter(){
         commands.entity(*e).despawn();
     }
