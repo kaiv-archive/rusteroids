@@ -6,37 +6,17 @@ C:\Users\morphin\.cargo\registry\src\index.crates.io-6f17d22bba15001f\bevy_asset
 
 CHANGE MENU's TEXTBUTTONS TO IMAGE BUTTONS
 
-FULL 3D IMITATOR OF BEAMS IN MENU
-    START POSITION AFFECTS VELOCITY THAT AFFECTS SCALE
-    ^  *
-    |   +   *
-    | *    
-    =----->
-    (+ is center)
-
 STYLE AS STRUCT
 
 MULTIPLAYER
     SKINS AND COLORS +
-    ALLOW PLAYERS TO USE DARK COLORS IF USING ASPECTS
-    SEND ONLY NEAREST ASTEROIDS AND PLAYERS + 
-    USE CHUNK SYSTEM ( x / 16, y / 16 ) FOR SPEED UP +
-
-
-    ASTEROID SEED, BULLET OWNER(FOR COLOR), SHIP STYLE INSIDE ObjectType ENUM!!! +-
-
+    ALLOW PLAYERS TO USE DARK COLORS IF USING ASPECTS 
+    ASTEROID SEED, BULLET OWNER(FOR COLOR), SHIP STYLE INSIDE ObjectType ENUM!!! // done, but dont do like that, please!
 
 OBJECTS
-    MINES -
-    POWER UP-s FROM METEORS +-
     AI bots
 
-MINING
-SHOP
 ОТДАЧА ОТ ПУЛЬ
-
-
-
 
 VFX
     ПОДЛОЖКА ЧЕРНАЯ ПОД АСТЕРОИДЫ + И line-based ИГРОКА (ЧТО-БЫ ЗВЕЗДЫ ЗА BG НЕ ПРОСВЕЧИВАЛИ)
@@ -44,33 +24,32 @@ VFX
     BACKGROUND + 
     ??? RANDOM ASTEROID COLORS
     BLOM INTENSITY FROM SOUNDS
-    RADIUS-BASED SMOOTH OBJECTS "VISIBILITY" (inc. STARS) IF TOO FAR
+    RADIUS-BASED SMOOTH OBJECTS "VISIBILITY" (inc. STARS) IF TOO FAR // for high raito screens
 
-GUI
-    MENU +-
-    HP 
+UI
     CHAT
-    ? WHEN SOMEBODY SEND MESSAGE AND ON SCREEN MSG APPEARS UNDER THEM
     
 
-ATTACK
 DASH CD
 DUMP FOR ROTATION (OVERSPEED)
 DUMP FOR POSITION (OVERSPEED)
 MOUSE CONTROLS +
 
-MODES!
+MODES! // probably never
     PVP
     ASTROBALL
     PVE
     RACE
     OPENWORLD
+        MINING for GOLD
+        SHOP
 
-INTERSECTIONS BETWEEN BULLETS?
-CLEAN UP
+INTERSECTIONS BETWEEN BULLETS? // cool, but i dont want to do that. (intersections between lines)
 
 CHAT, POWERUPS, CONTROL CHANGE, SERVER LIST, PARTICLES, SOUNDS
 
-
-!!! OPTIMIZE USING MATERIALS OF ASTEROID !!!
-solve Chunk and (u32, u32) usage!
+CLEAN UP
+    !!! OPTIMIZE USING MATERIALS OF ASTEROID !!!
+    cache everything
+    solve Chunk and (u32, u32) usage! // eq
+    split large files // probably i will never do that.

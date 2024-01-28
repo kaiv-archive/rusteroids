@@ -1,8 +1,8 @@
-use std::f32::consts::PI;
+use std::{f32::consts::PI, hash::Hash};
 
 use bevy::{
     prelude::*,
-    sprite::{MaterialMesh2dBundle, Mesh2dHandle}, render::{render_resource::{PrimitiveTopology, Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages}, mesh::Indices, camera::RenderTarget, view::RenderLayers}, utils::{HashMap, hashbrown::HashSet}, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::{BloomSettings, BloomCompositeMode}, clear_color::ClearColorConfig}, window::WindowResized,
+    sprite::{MaterialMesh2dBundle, Mesh2dHandle}, render::{render_resource::{PrimitiveTopology, Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages}, mesh::Indices, camera::RenderTarget, view::RenderLayers}, utils::hashbrown::{HashMap, HashSet}, core_pipeline::{tonemapping::{Tonemapping, DebandDither}, bloom::{BloomSettings, BloomCompositeMode}, clear_color::ClearColorConfig}, window::WindowResized,
 };
 
 use bevy_rapier2d::{prelude::*, rapier::geometry::CollisionEventFlags};
@@ -549,8 +549,7 @@ pub fn spawn_ship(
                 current: HashMap::new()
             },
 
-            ShipState::Regular { spawn_time: time.elapsed_seconds() }
-
+            ShipState::Regular
         ))
         .insert(LastDamageTaken{time: 0.})
         .insert(MaterialMesh2dBundle { //MESH
@@ -1290,22 +1289,14 @@ pub fn check_bullet_collisions_and_lifetime(
                                     return false
                                 }
                                 ObjectType::Ship { style, color, mut shields, mut hp} => {
-                                    match states_q.get(entity).unwrap() {
-                                        ShipState::Dash { start_time: _, direction: _ } => {
-                                            to_despawn.insert(bullet_entity);
-                                            return false
-                                        },
-                                        ShipState::Regular { spawn_time } => {
-                                            if spawn_time + cfg.spawn_immunity_time > time.elapsed_seconds(){
-                                                to_despawn.insert(bullet_entity);
-                                                return false
-                                            }
-                                        },
-                                        ShipState::Dead { time: _ } => {
-                                            return true
-                                        },
-                                    }
                                     if !(object.id == owner && time.elapsed().as_secs_f32() - spawn_time < 0.3){ // check ownership, after some time bullet will damage owner
+                                        match states_q.get(entity).unwrap() {
+                                            ShipState::Dead { time: _ } => {
+                                                to_despawn.insert(bullet_entity);
+                                                return true
+                                            },
+                                            _ => {}
+                                        }
                                         commands.entity(entity).insert(LastDamageTaken{time: time.elapsed_seconds()});
                                         if shields > 0.{
                                             shields -= cfg.bullet_damage;
@@ -1324,7 +1315,8 @@ pub fn check_bullet_collisions_and_lifetime(
                                             object_copy.object_type = ObjectType::Ship { style , color,  shields, hp };
                                             commands.entity(entity).insert((
                                                 ShipState::Dead { time: 0. },
-                                                //Visibility::Hidden,
+                                                ShipStatuses{current: HashMap::new()},
+                                                Visibility::Hidden,
                                                 ColliderDisabled,
                                                 Velocity::zero(),
                                                 object_copy
@@ -1396,16 +1388,12 @@ pub fn check_ship_force_events( // todo: take damage on colide with asteroid
     }*/
 }
 
-pub fn check_ship_effects(
 
-){
 
-}
-
-pub fn check_pickups_collisions_and_lifetime(
+pub fn check_pickups_collisions(
     mut collision_events: EventReader<CollisionEvent>,
-    mut ship_q: Query<&mut ShipStatuses, (With<Ship>, Without<Puppet>)>,
-    mut powerup_q: Query<(Entity, &Object), (With<PowerUP>, Without<Puppet>)>,
+    mut ship_q: Query<(&mut ShipStatuses, &mut Object), (With<Ship>, Without<PowerUP>, Without<Puppet>)>,
+    powerup_q: Query<(Entity, &Object), (With<PowerUP>, Without<Ship>, Without<Puppet>)>,
     mut commands: Commands,
     cfg: Res<GlobalConfig>,
 ){
@@ -1421,29 +1409,36 @@ pub fn check_pickups_collisions_and_lifetime(
                 let e0_powerup = powerup_q.get(e0);
                 let e1_powerup = powerup_q.get(e1);
 
-                let (mut ship_effects, powerup) = 
+                let (ship, powerup) = 
                     if e0_ship.is_ok() && e1_powerup.is_ok() {(ship_q.get_mut(e0).unwrap(), e1_powerup.unwrap())}
                 else
                     if e0_powerup.is_ok() && e1_ship.is_ok() {(ship_q.get_mut(e1).unwrap(), e0_powerup.unwrap())}
                 else
                     {continue;};
                 let (powerup_e, powerup_object) = powerup;
-
-                
-                
                 match powerup_object.object_type {
                     ObjectType::PickUP { pickup_type } => {
+                        let (mut ship_effects, mut object) = ship;
                         ship_effects.current.insert(pickup_type, cfg.get_power_up_effect(pickup_type));
-                        println!("zxc! {}", ship_effects.current.len());
+                        match pickup_type {
+                            PowerUPType::Repair => {
+                                let mut object_clone = object.clone();
+                                match object.object_type {
+                                    ObjectType::Ship { style, color, shields, hp } => {
+                                        object_clone.object_type = ObjectType::Ship { style, color, shields, hp: (hp + cfg.effects_repair_amount).clamp(0., cfg.player_hp)};
+                                        *object = object_clone;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            _ => {}
+                        }
                     }
                     _ => {}
                 }
-                
                 commands.entity(powerup_e).despawn_recursive();
             },
-            _ => {/* pass */},
+            _ => {},
         }
     }
-
-    
-} // todo
+}

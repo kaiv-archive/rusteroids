@@ -13,6 +13,7 @@ use client_menu::*;
 #[path = "game.rs"] mod game;
 use game::*;
 use game::components::*;
+use serde::de::value;
 use weighted_rand::builder::*;
 
 fn main(){
@@ -35,7 +36,13 @@ fn main(){
     app.insert_resource(LoadedChunks{chunks: vec![]});
     app.add_plugins((DefaultPlugins.set(
         ImagePlugin::default_nearest()
-        ),
+        ).set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "RUSTEROIDS".into(),
+                ..default()
+            }),
+            ..default()
+        }),
         EguiPlugin,
         WorldInspectorPlugin::new()
     ));
@@ -835,17 +842,25 @@ struct CachedMeshes{
     bg: Mesh
 }
 
+#[derive(Clone)]
+struct ShipData{
+    name: String,
+    shields: f32,
+    hp: f32,
+    statuses: ShipStatuses
+}
+
 fn ship_labels( // todo: maybe add it as childs to ships? // add handle for every puppet
     cfg: Res<GlobalConfig>,
     mut commands: Commands,
     ships_q: Query<(&Object, &mut Transform, &ShipState, &ShipStatuses, Entity), (With<Ship>, Without<ShipLabel>, Without<Puppet>, Without<HPBar>, Without<ShieldBar>)>,
     ships_puppets_q: Query<(&Object, &mut Transform, &ShipState, &ShipStatuses, Entity), (With<Ship>, Without<ShipLabel>, With<Puppet>, Without<HPBar>, Without<ShieldBar>)>,
-    mut labels_q: Query<(&ShipLabel, &mut Transform, &mut Text, Entity, &Children), (With<ShipLabel>, Without<Ship>, Without<HPBar>, Without<ShieldBar>)>,  
+    mut labels_q: Query<(&ShipLabel, &mut Transform, Entity, &Children), (With<ShipLabel>, Without<Ship>, Without<HPBar>, Without<ShieldBar>)>,  
     mut hpbar_q: Query<&mut Transform, (With<HPBar>, Without<ShipLabel>, Without<Ship>, Without<ShieldBar>)>,  
     mut shieldbar_q: Query<&mut Transform, (With<ShieldBar>, Without<ShipLabel>, Without<Ship>, Without<HPBar>)>,
-    mut empty_statusbar_q: Query<Entity, With<StatusBar>>, // idk why Option<StatusBar> is not working
-    mut statusbar_q: Query<(Entity, &mut StatusBar, &Children), With<StatusBar>>,
-    mut status_q: Query<&PowerUPType>,
+    mut statusbar_q: Query<(Entity, &mut StatusBar, Option<&Children>), With<StatusBar>>,
+    mut status_q: Query<(Entity, &PowerUPType, Option<&Children>)>,
+    mut text_q: Query<&mut Text>,
     asset_server: Res<AssetServer>, 
     clients_data: Res<ClientsData>,
     time: Res<Time>,
@@ -853,10 +868,6 @@ fn ship_labels( // todo: maybe add it as childs to ships? // add handle for ever
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut cached_meshes: Local<Option<CachedMeshes>>
 ){
-    /*for i in ships_q.iter() {
-        println!("len is {:?}", i.3.current.len());
-    }*/
-    
     let font = asset_server.load("../assets/fonts/VecTerminus12Medium.otf");
     let text_style = TextStyle {
         font: font.clone(),
@@ -868,11 +879,11 @@ fn ship_labels( // todo: maybe add it as childs to ships? // add handle for ever
     let line_indices = vec![0, 1, 1, 2, 2, 3, 3, 0];
     let indices = vec![0, 1, 2, 1, 2, 3];
     let outline_vertices = vec![
-            Vec3{x: (size.x / 2. + 1.),y: (size.y / 2. + 1.), z:10.},
-            Vec3{x: (size.x / 2. + 1.),y:-(size.y / 2. + 1.), z:10.},
-            Vec3{x:-(size.x / 2. + 1.),y:-(size.y / 2. + 1.), z:10.},
-            Vec3{x:-(size.x / 2. + 1.),y: (size.y / 2. + 1.), z:10.}
-        ];
+        Vec3{x: (size.x / 2. + 1.), y: (size.y / 2. + 1.), z:10.},
+        Vec3{x: (size.x / 2. + 1.), y:-(size.y / 2. + 1.), z:10.},
+        Vec3{x:-(size.x / 2. + 1.), y:-(size.y / 2. + 1.), z:10.},
+        Vec3{x:-(size.x / 2. + 1.), y: (size.y / 2. + 1.), z:10.}
+    ];
     if cached_meshes.is_none(){
         let mut outline_mesh = Mesh::new(PrimitiveTopology::LineList);
         outline_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, outline_vertices.clone()); 
@@ -884,11 +895,11 @@ fn ship_labels( // todo: maybe add it as childs to ships? // add handle for ever
         outline_mesh_bg.set_indices(Some(Indices::U32(indices.clone())));
 
         let mesh_vertices = vec![
-                Vec3{x: size.x / 2.,y: size.y / 2., z:10.},
-                Vec3{x: size.x / 2.,y:-size.y / 2., z:10.},
-                Vec3{x:-size.x / 2.,y: size.y / 2., z:10.},
-                Vec3{x:-size.x / 2.,y:-size.y / 2., z:10.}
-            ];
+            Vec3{x: size.x / 2.,y: size.y / 2., z:10.},
+            Vec3{x: size.x / 2.,y:-size.y / 2., z:10.},
+            Vec3{x:-size.x / 2.,y: size.y / 2., z:10.},
+            Vec3{x:-size.x / 2.,y:-size.y / 2., z:10.}
+        ];
         let mut hp_mesh = Mesh::new(PrimitiveTopology::TriangleList);
         hp_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, mesh_vertices);
         hp_mesh.set_indices(Some(Indices::U32(indices)));
@@ -903,12 +914,12 @@ fn ship_labels( // todo: maybe add it as childs to ships? // add handle for ever
         });
     }
     let mut labels = HashMap::new();
-    for (label, transform, text, entity, children) in labels_q.iter_mut(){
-        labels.insert(label.entity_id, (label, transform, text, entity, children));
+    for (label, transform, entity, children) in labels_q.iter_mut(){
+        labels.insert(label.entity_id, (label, transform, entity, children));
     }
     let mut used_labels = HashSet::new();
     // iterating trough ships, collect data about name, hp and shields; and after iter trough puppets. because puppets doesnt update their hp and shields, but we need to update its labels
-    let mut data_about_ships: HashMap<u64, (String, f32, f32)> = HashMap::new();
+    let mut data_about_ships: HashMap<u64, ShipData> = HashMap::new();
     for (object, transform, state, statuses, e) in ships_q.iter().chain(ships_puppets_q.iter()){ 
         match state {ShipState::Dead { time: _ } => {continue;} _ => {}}; // labels only for alive!
 
@@ -918,106 +929,151 @@ fn ship_labels( // todo: maybe add it as childs to ships? // add handle for ever
             let data = data.unwrap();
             match object.object_type {
                 ObjectType::Ship { style:_ , color: _, shields, hp} => {
-                    let (name, shields, hp) = if ships_puppets_q.contains(e){
+                    let ship_data = if ships_puppets_q.contains(e){
                         let res = data_about_ships.get(&object.id);
                         if res.is_none(){
                             continue;
                         }
                         res.unwrap().clone()
                     } else {
-                        data_about_ships.insert(object.id, (data.name.clone(), shields, hp));
-                        (data.name.clone(), shields, hp)
+                        data_about_ships.insert(object.id, 
+                            ShipData{
+                                name: data.name.clone(),
+                                shields,
+                                hp,
+                                statuses: statuses.clone()
+                            });
+                        ShipData{
+                            name: data.name.clone(),
+                            shields,
+                            hp,
+                            statuses: statuses.clone()
+                        }
                     };
                     if labels.contains_key(&id){
-                        labels.get_mut(&id).unwrap().1.translation = transform.translation + Vec3::Y * -45. + Vec3::Z * 10.;
+                        labels.get_mut(&id).unwrap().1.translation = transform.translation + Vec3::Y * -28. + Vec3::Z * 10.;
                         /* UPDATE */
-                        let children = labels.get(&id).unwrap().4;
+                        let children = labels.get(&id).unwrap().3;
                         
                         
                         for e in children.iter(){
                             commands.entity(*e);
                             let hpbar = hpbar_q.get_mut(*e);
                             if hpbar.is_ok(){
-                                hpbar.unwrap().scale.x = hp / cfg.player_hp;
+                                hpbar.unwrap().scale.x = ship_data.hp / cfg.player_hp;
                             }
 
 
                             let shbar = shieldbar_q.get_mut(*e);
                             if shbar.is_ok(){
-                                shbar.unwrap().scale.x = shields / cfg.player_shields;
+                                shbar.unwrap().scale.x = ship_data.shields / cfg.player_shields;
                             }
 
-                            let empty_statusbar = empty_statusbar_q.get_mut(*e);
+                            //let empty_statusbar = empty_statusbar_q.get_mut(*e);
                             let statusbar = statusbar_q.get_mut(*e);
 
 
-                            if statusbar.is_ok() || empty_statusbar.is_ok(){
+                            if statusbar.is_ok(){
                                 
-                                let (e, mut icons, children) = if statusbar.is_ok() {
-                                    let (e, i, c) = statusbar.unwrap();
-                                    (e, Some(i), Some(c))
-                                } else {
-                                    (empty_statusbar.unwrap(), None, None)
-                                };
+                                let (e, mut status_bar, children) = statusbar.unwrap();
 
                                 let mut iterated = HashSet::new();
                                 let mut existing = HashSet::new();
-
+                                //let mut to_spawn = HashSet::new();
                                 //let mut to_rem = HashSet::new();
                                 if children.is_some() {
                                     for c in children.unwrap().iter(){
                                         let status = status_q.get(*c);
                                         if status.is_ok(){
-                                            let existing_status = status.unwrap();
+                                            let (new_e, existing_status, children_op) = status.unwrap();
+                                            status_bar.binds.insert(*existing_status, new_e);
                                             existing.insert(existing_status);
                                         }
                                     }
                                 }
                                 //println!("ex {}", existing.len());
-                                for (status_type, effect) in statuses.current.iter(){
-                                    
+                                
+                                let scale = 1.2;
+                                for (status_type, effect) in ship_data.statuses.current.iter(){
                                     iterated.insert(status_type);
                                     if !existing.contains(status_type){
                                         // spawn
-                                        println!("spawned!");
-                                        commands.spawn((
+                                        let new_e = commands.spawn((
                                             SpriteBundle {
                                                 texture: asset_server.load(status_type.texture_path()),
-                                                transform: Transform::from_xyz(0., 0., 0.01).with_scale(Vec3::splat(1.2)),
+                                                transform: Transform::from_scale(Vec3::splat(scale)),
                                                 ..default()
                                             },
                                             status_type.clone(),
                                             Name::new("ICON"),
-                                        )).set_parent(e);
-                                    } else {
-                                        // update
-                                        
+                                        )).set_parent(e).id();
+
+                                        status_bar.binds.insert(*status_type, new_e);
+
+                                        commands.spawn(Text2dBundle{
+                                            text: Text::from_section(
+                                            format!("{}", effect.get_val_to_show(status_type)),
+                                            TextStyle {
+                                                font: font.clone(),
+                                                font_size: 10.0,
+                                                color: Color::WHITE,
+                                            }),
+                                            transform: Transform::from_translation(Vec3::Y * -10. - Vec3::X),
+                                            ..default()
+                                        }).set_parent(new_e);
                                     }
-                                } 
+                                }
+
+                                let max_len = 
+                                    (format!("{}", cfg.effects_extradamage_secs).len()).max(
+                                    (format!("{}", cfg.effects_haste_secs).len()).max(
+                                    (format!("{}", cfg.effects_invisibility_secs).len()).max(
+                                     format!("{}" , cfg.effects_supershield_amount).len()))) as f32;
+                                
+                                let margin = 2. * max_len + 2.; // 2 * len + 2
+                                let single_size = 12.;
+                                let half_size = (margin + single_size) / 2. * (iterated.len() as f32 - 1.);
+                                let mut i = 0;
+                                for (status_type, effect) in ship_data.statuses.current.iter(){ // update pos and value
+                                    let val = effect.get_val_to_show(status_type);
+                                    let icon_entity = status_bar.binds.get(status_type).unwrap();
+                                    commands.entity(*icon_entity).insert(Transform::from_translation(Vec3::X * (i as f32 * (single_size + margin) - half_size + 0.5)).with_scale(Vec3::splat(scale)));
+
+
+                                    let option = status_q.get(*icon_entity);
+                                    
+                                    
+                                    if option.is_ok() {
+                                        let (_, _, children) = option.unwrap();
+                                        if children.is_some() {
+                                            text_q.get_mut(*children.unwrap().first().unwrap()).unwrap().sections.get_mut(0).unwrap().value = format!("{}", val.round());
+                                        }
+                                    }
+                                    i += 1;
+                                }
+                                
                                 for status in existing {
                                     if !iterated.contains(status){
-                                        //despawn
-                                        
+                                        let e = status_bar.binds.get(status);
+                                        if e.is_some() {
+                                            commands.entity(*e.unwrap()).despawn_recursive();
+                                        } else {
+                                            warn!("Statusbar doesnt have bind to \"need_to_despawn\" entity")
+                                        }
                                     }
                                 }
 
 
                                     //cfg.get_power_up_effect(status_type);
-                                    
-                                    /*SpriteBundle {
-                                        texture: asset_server.load(powerup_type.texture_path()),
-                                        transform: Transform::from_xyz(0., 0., 0.01).with_scale(Vec3::splat(1.2)),
-                                        ..default()
-                                    }*/
                                 
                             };
                         }
                         
                     } else {
-                        let parent = commands.spawn((
+                        let label_e = commands.spawn((
                             Text2dBundle {
                                 text: Text::from_section(
-                                        format!("{}\n", name),
+                                        format!("{}\n", ship_data.name),
                                         text_style.clone(),
                                     ),
                                 ..default()
@@ -1025,51 +1081,53 @@ fn ship_labels( // todo: maybe add it as childs to ships? // add handle for ever
                             ShipLabel{
                                 entity_id: id
                             },
-                        )).insert(Transform::from_translation(transform.translation + Vec3::Y * -45. + Vec3::Z * 10.)).id();
+                        )).insert(Transform::from_translation(transform.translation + Vec3::Y * -28. + Vec3::Z * 10.)).id();
                         let cached_meshes = cached_meshes.clone().unwrap();
+
                         commands.spawn(MaterialMesh2dBundle {
                             mesh: Mesh2dHandle(meshes.add(cached_meshes.hp.clone())),
                             transform: Transform::from_translation(Vec3::Y * -10. + Vec3::Z),
                             material: materials.add(ColorMaterial::default()),
                             ..default()
-                        }).insert(HPBar).set_parent(parent);
+                        }).insert(HPBar).set_parent(label_e);
                         commands.spawn(MaterialMesh2dBundle {
                             mesh: Mesh2dHandle(meshes.add(cached_meshes.outline.clone())),
                             transform: Transform::from_translation(Vec3::Y * -10.),
                             material: materials.add(ColorMaterial::default()),
                             ..default()
-                        }).set_parent(parent);
+                        }).set_parent(label_e);
                         commands.spawn(MaterialMesh2dBundle {
                             mesh: Mesh2dHandle(meshes.add(cached_meshes.bg.clone())),
                             transform: Transform::from_translation(Vec3::Y * -10.),
                             material: materials.add(ColorMaterial::default()),
                             ..default()
-                        }).set_parent(parent);
+                        }).set_parent(label_e);
 
                         commands.spawn(MaterialMesh2dBundle {
                             mesh: Mesh2dHandle(meshes.add(cached_meshes.shield.clone())),
                             transform: Transform::from_translation(Vec3::Y * -16. + Vec3::Z),
                             material: materials.add(ColorMaterial::default()),
                             ..default()
-                        }).insert(ShieldBar).set_parent(parent);
+                        }).insert(ShieldBar).set_parent(label_e);
                         commands.spawn(MaterialMesh2dBundle {
                             mesh: Mesh2dHandle(meshes.add(cached_meshes.outline.clone())),
                             transform: Transform::from_translation(Vec3::Y * -16.),
                             material: materials.add(ColorMaterial::default()),
                             ..default()
-                        }).set_parent(parent);
+                        }).set_parent(label_e);
                         commands.spawn(MaterialMesh2dBundle {
                             mesh: Mesh2dHandle(meshes.add(cached_meshes.bg.clone())),
                             transform: Transform::from_translation(Vec3::Y * -16.),
                             material: materials.add(ColorMaterial::default()),
                             ..default()
-                        }).set_parent(parent);
+                        }).set_parent(label_e);
+
                         commands.spawn((
                             StatusBar::default(),
                             TransformBundle::default(),
                             VisibilityBundle::default(),
                             Name::new("ICONBAR"),
-                        )).insert(Transform::from_translation(Vec3::Y * -24.)).set_parent(parent);
+                        )).insert(Transform::from_translation(Vec3::Y * 74.)).set_parent(label_e);
                     }
                     used_labels.insert(id);
                 },
@@ -1078,7 +1136,7 @@ fn ship_labels( // todo: maybe add it as childs to ships? // add handle for ever
         }
     }
     
-    for (id, (_, _, _, e, _)) in labels.iter(){
+    for (id, (_, _, e, _)) in labels.iter(){
         if !used_labels.contains(id){commands.entity(*e).despawn_recursive()};
     }
 }

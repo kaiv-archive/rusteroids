@@ -592,9 +592,6 @@ const LABEL_RESOLUTION: u8 = 15;
 const MAX_LABEL_OFFSET: f32 = 0.8;
 
 
-
-
-
 pub fn setup_splash(
     mut commands: Commands,
     asset_server: Res<AssetServer>,

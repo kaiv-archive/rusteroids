@@ -139,17 +139,11 @@ impl ClientsData{
         }
         return None;
     }
-    pub fn get_by_object_id(&self, key: u64) -> &ClientData{
-        self.data.get(self.binds.get(&key).unwrap()).unwrap()
-    }
     pub fn get_by_client_id(&self, key: u64) -> &ClientData{
         self.data.get(&key).unwrap()
     }
     pub fn get_option_by_client_id(&self, key: u64) -> Option<&ClientData>{
         self.data.get(&key)
-    }
-    pub fn get_mut_by_object_id(&mut self, key: u64) -> &mut ClientData{
-        self.data.get_mut(self.binds.get(&key).unwrap()).unwrap()
     }
     pub fn get_mut_by_client_id(&mut self, key: u64) -> &mut ClientData{
         self.data.get_mut(&key).unwrap()
@@ -221,7 +215,6 @@ pub struct GlobalConfig{
     pub effects_extradamage_amount: f32,
     pub effects_haste_secs: f32,
     pub effects_haste_amount: f32,
-    pub effects_supershield_secs: f32,
     pub effects_supershield_amount: f32,
     pub effects_invisibility_secs: f32,
 }
@@ -239,9 +232,9 @@ impl Default for GlobalConfig {
             player_shields: 100.,
             shield_recharge_per_sec: 10.,
             shield_recharge_delay: 5.,
-            bullet_damage: 200.,
+            bullet_damage: 50.,
             powerup_drop_chances: 1.0,
-            dash_cd_secs: 0.,
+            dash_cd_secs: 0., // todo: gui cd
             dash_time: 1.,
             shoot_cd_secs: 0.5,
             bullet_lifetime_secs: 10.,
@@ -249,13 +242,12 @@ impl Default for GlobalConfig {
             respawn_time_secs: 5.,
 
             effects_repair_amount: 100.,
-            effects_extradamage_secs: 15.,
+            effects_extradamage_secs: 3., // 15.,
             effects_extradamage_amount: 1.5,
-            effects_haste_secs: 15.,
+            effects_haste_secs: 3., // 15.,
             effects_haste_amount: 2.,
-            effects_supershield_secs: 30.,
             effects_supershield_amount: 50.,
-            effects_invisibility_secs: 20.,
+            effects_invisibility_secs: 3., // 20.,
         }
     }
 }
@@ -276,7 +268,7 @@ impl GlobalConfig {
                 PowerUPEffect{seconds: 0., value: self.effects_repair_amount}
             },
             PowerUPType::SuperShield => {
-                PowerUPEffect{seconds: self.effects_supershield_secs, value: self.effects_supershield_amount}
+                PowerUPEffect{seconds: f32::INFINITY, value: self.effects_supershield_amount}
             }
         }
     }
@@ -400,23 +392,46 @@ pub struct PuppetPlayer;
 
 #[derive(Serialize, Deserialize)]
 #[derive (Clone, Copy)]
+
 pub enum ObjectType{
     Asteroid{seed: u64, hp: u8},
     Bullet{previous_position: Transform, spawn_time: f32, owner: u64},
     Ship{style: u8, color: Color, shields: f32, hp: f32},
     PickUP{pickup_type: PowerUPType},
 }
+/*
+NEVER DO LIKE THAT ^^^^^ (ENUM COMPONENT STRUCTS WITH BEVY) WITH MUT PARAMETERS. LOOK AT MY CODE AND DONT DO LIKE THAT.
+
+/ for example, changing one parameter (hp) looks like that:
+
+fn heal(
+    mut ship_q: Query<&mut Object>,
+    cfg: Res<GlobalConfig>,
+){
+    let to_heal_object = ship_q.last().unwrap(); 
+
+    let mut object_clone = object.clone();
+    match object.object_type {
+        ObjectType::Ship { style, color, shields, hp } => {
+            object_clone.object_type = ObjectType::Ship { style, color, shields, hp: (hp + cfg.effects_repair_amount).clamp(0., cfg.player_hp)};
+            *object = object_clone;
+        }
+        _ => {}
+    }
+}
+*/
+
 
 #[derive(Component)]
 #[derive(Serialize, Deserialize)]
 #[derive(Clone, Copy)]
 #[derive(Hash, PartialEq, Eq)]
 pub enum PowerUPType{
-    Repair, // +--
-    ExtraDamage, // +--
-    Haste, //+--
-    SuperShield, //+--
-    Invisibility, //+--
+    Repair,//-
+    ExtraDamage,//-
+    Haste,//-
+    SuperShield,//-
+    Invisibility,//-
 }
 
 impl PowerUPType {
@@ -435,8 +450,8 @@ impl PowerUPType {
 #[derive(Serialize, Deserialize)]
 #[derive (Clone, Copy)]
 pub enum ShipState{
-    Regular{spawn_time: f32}, // spawn_time for imunity
-    Dash{start_time: f32, direction: Vec2},
+    Regular,
+    Dash{start_time: f32, init_velocity: Vec2},
     Dead{time: f32},
 }
 #[derive (Component)]
@@ -449,10 +464,20 @@ pub struct ShipStatuses{
 #[derive(Serialize, Deserialize)]
 #[derive (Clone)]
 pub struct PowerUPEffect{
-    seconds: f32,
-    value: f32
+    pub seconds: f32,
+    pub value: f32
 }
-
+impl PowerUPEffect{
+    pub fn get_val_to_show(&self, power_up_type: &PowerUPType) -> f32{
+        match power_up_type {
+            PowerUPType::Repair => {self.value}
+            PowerUPType::ExtraDamage => {self.seconds}
+            PowerUPType::Haste => {self.seconds}
+            PowerUPType::SuperShield => {self.value}
+            PowerUPType::Invisibility => {self.seconds}
+        }
+    }
+}
 #[derive(Component)]
 pub struct ShipPreview;
 

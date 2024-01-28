@@ -38,7 +38,13 @@ pub struct ServerSettings{
 fn main(){
     let mut app = App::new();
     app.add_plugins((
-        DefaultPlugins,
+        DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "RUSTEROIDS server".into(),
+                ..default()
+            }),
+            ..default()
+        }),
         EguiPlugin,
         WorldInspectorPlugin::new(),
         RenetServerPlugin,
@@ -80,7 +86,7 @@ fn main(){
         state_and_status_checker,
         check_bullet_collisions_and_lifetime,
         check_ship_force_events,
-        check_pickups_collisions_and_lifetime,
+        check_pickups_collisions,
 
         (asteroids_refiller, snap_objects, update_chunks_around, send_message_system).chain(),
 
@@ -355,15 +361,12 @@ fn send_message_system(
             let obj = objects_q.get(e);
             if obj.is_ok(){
                 let (iterated_ship, _, t, _) = obj.unwrap();
-
-                
                 let chunk = cfg.pos_to_chunk(&t.translation);
                 let mut included_chunks = HashSet::new(); // exclude overlapping chunks if map is small size of (1; 1) -> 8*(1; 1) same chunks with same objects
                 let mut personalised_data: Vec<ObjectData> = vec![];
                 for x in (chunk.x as i32) - 1 .. chunk.x as i32 + 2 {
                     for y in (chunk.y as i32) - 1 .. chunk.y as i32 + 2{
                         let real_chunk = cfg.chunk_to_real_chunk_v2(&Vec2{x: x as f32, y: y as f32});
-                        
                         let objects_in_chunk: Option<&Vec<ObjectData>> = chunk_to_objects.get(&(real_chunk.x as u32, real_chunk.y as u32));
                         if objects_in_chunk.is_some() && !included_chunks.contains(&(real_chunk.x as u32, real_chunk.y as u32)){
                             for object_data in objects_in_chunk.unwrap().iter(){
@@ -444,35 +447,23 @@ fn receive_message_system(
                             //todo: add dash
                             match *state{
                                 ShipState::Dead { time: _ } => {} // cant move!
-                                ShipState::Dash { start_time, mut direction } => {
+                                ShipState::Dash { start_time, mut init_velocity } => {
                                     
                                     //*velocity.linvel = direction.normalize_or_zero() * 400. * (0.5 + 1. - ((time.elapsed_seconds() - start_time) / cfg.dash_time).powi(3));
 
                                     //*state = ShipState::Dash { start_time: time.elapsed_seconds(), direction: target_direction };
 
-                                    if inputs.up    {direction.y += 1.5;} //  || buttons.pressed(MouseButton::Right
-                                    if inputs.down  {direction.y -= 0.75;}
-                                    if inputs.right {direction.x += 1.0;}
-                                    if inputs.left  {direction.x -= 1.0;}
-                                     
-
                                     // let it be...
-                                    velocity.linvel = direction.normalize_or_zero() * 400. * (0.5 + 1. - ((time.elapsed_seconds() - start_time) / cfg.dash_time).powi(3));
-                                    *state = ShipState::Dash { start_time: start_time, direction: direction };
-                                    let target_angle = transform.up().truncate().angle_between(inputs.rotation_target);
-                                    
-                                    if !target_angle.is_nan(){
-                                        velocity.angvel += ((target_angle * 180. / PI - velocity.angvel) * 1.).clamp(-1., 3.);//.clamp(-1.5, 1.5);
-                                    }
-                                    
+                                    velocity.linvel = init_velocity.normalize_or_zero() * 400. * (0.5 + 1. - ((time.elapsed_seconds() - start_time) / cfg.dash_time).powi(3));
+                                    *state = ShipState::Dash { start_time: start_time, init_velocity: init_velocity };
 
                                     
                                     
                                     if start_time + cfg.dash_time < time.elapsed_seconds(){
-                                        *state = ShipState::Regular { spawn_time: time.elapsed_seconds() - cfg.spawn_immunity_time - 1. };
+                                        *state = ShipState::Regular;
                                     }
                                 }
-                                ShipState::Regular { spawn_time: _ } => {
+                                ShipState::Regular => {
                                     // MOVES
                                     let mut target_direction = Vec2::ZERO;
                                     if inputs.up    {target_direction.y += 1.5;} //  || buttons.pressed(MouseButton::Right
@@ -529,7 +520,7 @@ fn receive_message_system(
                                                 if target_direction == Vec2::ZERO {
                                                     target_direction = Vec2::from_angle(transform.rotation.to_euler(EulerRot::XYZ).2 + PI / 2.);
                                                 }
-                                                *state = ShipState::Dash { start_time: time.elapsed_seconds(), direction: target_direction };
+                                                *state = ShipState::Dash { start_time: time.elapsed_seconds(), init_velocity: target_direction };
                                                 
                                                 velocity.angvel = 0.;
                                                 
@@ -539,7 +530,7 @@ fn receive_message_system(
                                             if target_direction == Vec2::ZERO {
                                                 target_direction = Vec2::from_angle(transform.rotation.to_euler(EulerRot::XYZ).2 + PI / 2.);
                                             }
-                                            *state = ShipState::Dash { start_time: time.elapsed_seconds(), direction: target_direction };
+                                            *state = ShipState::Dash { start_time: time.elapsed_seconds(), init_velocity: target_direction };
                                             
                                             velocity.angvel = 0.;
                                             server_side_varables.dash_cds.insert(client_id.raw(), current_time);
@@ -616,10 +607,10 @@ fn handle_events_system(
     mut visualizer: ResMut<RenetServerVisualizer<200>>,
     mut clients_data: ResMut<ClientsData>,
     mut commands: Commands,
-    mut cfg: ResMut<GlobalConfig>,
-    transport: Res<NetcodeServerTransport>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    //mut cfg: ResMut<GlobalConfig>,
+    //transport: Res<NetcodeServerTransport>,
+    //mut meshes: ResMut<Assets<Mesh>>,
+    //mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     for event in server_events.read() {
         //println!("{:?}", event);
@@ -649,47 +640,48 @@ fn handle_events_system(
 }
 
 fn state_and_status_checker(
-    mut ships_q: Query<(&mut Object, &mut ShipState, &LastDamageTaken), (With<Ship>, Without<Puppet>)>,
+    mut ships_q: Query<(&mut Object, &ShipState, &LastDamageTaken), (With<Ship>, Without<Puppet>)>,
+    mut status_q: Query<&mut ShipStatuses, Without<Puppet>>,
     time: Res<Time>,
     mut commands: Commands,
     mut objects_distribution: ResMut<ObjectsDistribution>,
-    mut cfg: ResMut<GlobalConfig>,
-    mut clients_data: ResMut<ClientsData>,
+    cfg: ResMut<GlobalConfig>,
+    clients_data: ResMut<ClientsData>,
 ){
-    for (mut object, mut state, last_damage_taken) in ships_q.iter_mut(){
+    for (mut object, state, last_damage_taken) in ships_q.iter_mut(){
         match *state{
-            ShipState::Regular { spawn_time } => {
-
-            },
-            ShipState::Dash { start_time, direction: _  } => {
-
-            },
             ShipState::Dead { time: death_time } => {
                 if death_time < cfg.respawn_time_secs{
-                    commands.entity(clients_data.get_by_object_id(object.id).entity).insert(ShipState::Dead { time: death_time + time.delta_seconds() });
+                    let client_data = clients_data.get_option_by_object_id(object.id);
+                    if client_data.is_some(){
+                        commands.entity(client_data.unwrap().entity).insert(ShipState::Dead { time: death_time + time.delta_seconds() });
+                    }
                 } else { // respawn
                     let pos = get_pos_to_spawn(&mut objects_distribution, &cfg);
                     let mut respawned_object = object.clone();
                     match object.object_type{
-                        ObjectType::Ship { style, color, shields, hp } => {
+                        ObjectType::Ship { style, color, shields: _, hp: _ } => {
                             respawned_object.object_type = ObjectType::Ship{
                                 style,
                                 color,
                                 shields: cfg.player_shields,
                                 hp: cfg.player_hp,
                             };
-                            let client_data = clients_data.get_by_object_id(object.id);
-                            commands.entity(client_data.entity).insert((
-                                ShipState::Regular { spawn_time: time.elapsed_seconds() },
-                                respawned_object,
-                                Transform::from_translation(pos.extend(0.))
-                            ));
-                            commands.entity(client_data.entity).remove::<ColliderDisabled>();
+                            let client_data = clients_data.get_option_by_object_id(object.id);
+                            client_data.is_some().then(||{
+                                commands.entity(client_data.unwrap().entity).insert((
+                                    ShipState::Regular,
+                                    respawned_object,
+                                    Transform::from_translation(pos.extend(0.))
+                                ));
+                                commands.entity(client_data.unwrap().entity).remove::<ColliderDisabled>();
+                            });
                         }
                         _ => {}
                     }
                 }
             },
+            _ => {}
         }
         if last_damage_taken.time + cfg.shield_recharge_delay < time.elapsed_seconds(){
             match object.object_type{
@@ -700,4 +692,16 @@ fn state_and_status_checker(
             }
         }
     }
+    for mut ship_status in status_q.iter_mut(){
+        let current = &mut ship_status.current;
+        let mut to_remove = vec![];
+        for (status_type, status_effect) in current.iter_mut() {
+            status_effect.seconds -= time.delta_seconds();
+            if status_effect.seconds < 0. {
+                to_remove.push(status_type.clone());
+
+            };
+        }
+        for t in to_remove{current.remove(&t);}; 
+    } 
 }

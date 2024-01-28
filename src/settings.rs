@@ -36,14 +36,16 @@ pub struct GameSettings{
     pub color2: [f32; 3],
     pub color3: [f32; 3],
     pub style: u8,
-
-
-
 }
+
+
+
+
+
 impl Default for GameSettings {
     fn default() -> GameSettings{
         GameSettings{
-            font_path: "fonts/F77MinecraftRegular-0VYv.ttf".into(),
+            font_path: "fonts/F77MinecraftRegular-0VYv.ttf".into(), //?
             // SOUND
             volume: 100., // ADD IMPLEMENTATION!!!
             music_volume: 100., // ADD IMPLEMENTATION!!!
