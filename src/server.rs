@@ -4,32 +4,32 @@ use bevy::{core_pipeline::clear_color::ClearColorConfig, ecs::schedule::Schedule
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_rapier2d::{geometry::ColliderDisabled, prelude::{RapierPhysicsPlugin, NoUserData, Velocity}, render::RapierDebugRenderPlugin};
 use bevy_renet::{renet::{*, transport::*}, RenetServerPlugin, transport::NetcodeServerPlugin};
+
 use renet_visualizer::RenetServerVisualizer;
 use bevy_egui::{egui::{self, Style, Visuals, epaint::Shadow, Color32, Rounding, Align, Stroke, FontId}, EguiContexts, EguiPlugin};
 
 
-//#[path = "settings.rs"] mod settings;
-#[path = "console.rs"] mod console;
-use console::*;
-#[path = "game.rs"] mod game;
+pub mod console;
+pub mod game;
+
+use console::bot_ai::*;
+
 use game::*;
 use game::components::*;
-//#[path = "components.rs"] mod components;
-//use components::*;
 
 
 #[derive(Component)]
-pub struct GameLabel;
+struct GameLabel;
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, States)]
-pub enum ServerState {
+enum ServerState {
     #[default]
     PreInit,
     Running
 }
 
 #[derive(Resource)]
-pub struct ServerSettings{
+struct ServerSettings{
     pub port: i16,
     pub max_clients: usize,
 }
@@ -58,7 +58,7 @@ fn main(){
     app.insert_resource(LoadedChunks{chunks: vec![]});
     app.insert_resource(GlobalConfig{
         map_size_chunks: Vec2{
-            x: 1.,
+            x: 3.,
             y: 1.
         },
         single_chunk_size: Vec2{
@@ -93,15 +93,17 @@ fn main(){
         receive_message_system,
         handle_events_system,
         
-        console_renderer,
-        command_executer
+        calculate_bots_response,
+        
+        console::console_renderer,
+        console::command_executer
         //check_bullet_collisions_and_lifetime
     ).run_if(in_state(ServerState::Running)));
     //app.add_systems(OnExit(ServerState::Running), cleanup_menu)
 
     app.add_event::<ServerEvent>();
-    
-    setup_commands_executer(&mut app, true);
+    init_bots_ai(&mut app);
+    console::setup_commands_executer(&mut app, true);
 
     app.run();
 }
@@ -249,7 +251,6 @@ fn setup_game(
     }
 
     commands.insert_resource(ObjectsDistribution{data: HashMap::new()});
-    
     // SPAWN ASTEROIDS
     /*for x in 0..cfg.map_size_chunks.x as u32{
         for y in 0..cfg.map_size_chunks.y as u32{
@@ -302,6 +303,7 @@ fn send_message_system(
     states_and_statuses_q: Query<(&ShipState, &ShipStatuses), Without<Puppet>>,
     mut objects_q: Query<(&Object, &Velocity, &Transform, Entity), (With<Object>, Without<Puppet>)>,
     mut objects_distribution: ResMut<ObjectsDistribution>, 
+    mut bots: ResMut<BotList>,
     cfg: ResMut<GlobalConfig>,
     time: Res<Time>,
 ) {
@@ -352,9 +354,16 @@ fn send_message_system(
         }
     }
 
+    let bot_ids = bots.get_bots_client_ids();
+    let clients_ids = server.clients_id();
+    let mut clients = HashMap::new();
+    for cid in clients_ids{
+        clients.insert(cid.raw(), cid);
+    }
 
-    for client_id in server.clients_id().into_iter() {
-        let clients_data = clients_data.get_option_by_client_id(client_id.raw());
+    for client_id in clients.keys().collect::<Vec<&u64>>().iter() {
+        let is_bot = bot_ids.contains(*client_id);
+        let clients_data = clients_data.get_option_by_client_id(*client_id);
         if clients_data.is_some(){
             let clients_data = clients_data.unwrap();
             let e = clients_data.entity;
@@ -398,14 +407,19 @@ fn send_message_system(
                         }
                     }
                 }
-                let msg = Message::Update {
-                    data: personalised_data
-                };
-                let encoded: Vec<u8> = bincode::serialize(&msg).unwrap();
-                server.send_message(client_id, ServerChannel::Fast, encoded);
+                if is_bot{
+                    bots.set_bot_world_state(**client_id, personalised_data)
+                } else {
+                    let msg = Message::Update {
+                        data: personalised_data
+                    };
+                    let encoded: Vec<u8> = bincode::serialize(&msg).unwrap();
+                    server.send_message(*clients.get(*client_id).unwrap(), ServerChannel::Fast, encoded);
+                }
             }
         }
     }
+
 }
 
 
@@ -425,6 +439,7 @@ impl Default for ServerSideVarables{
 
 fn receive_message_system(
     mut server: ResMut<RenetServer>,
+    mut bots: ResMut<BotList>,
     mut clients_data: ResMut<ClientsData>,
     mut commands: Commands,
     mut objects_distribution: ResMut<ObjectsDistribution>,
@@ -437,13 +452,12 @@ fn receive_message_system(
     time: Res<Time>,
     asset_server: Res<AssetServer>,
 ) {
-     // Send a text message for all clients
     for client_id in server.clients_id().into_iter() {
         while let Some(message) = server.receive_message(client_id, ClientChannel::Fast) {
             let msg: Message = bincode::deserialize::<Message>(&message).unwrap();
             match msg {
                 Message::Inputs{ inputs } => {
-                    let client_data_op = clients_data.get_option_by_client_id(client_id.raw());
+                    let client_data_op = clients_data.get_option_by_client_id(&client_id.raw());
                     if client_data_op.is_some() {
                         let client_data = client_data_op.unwrap();
                         let res = ships_q.get_mut(client_data.entity);
@@ -611,6 +625,118 @@ fn receive_message_system(
             }
         }
     }
+    for bot_id in bots.get_bots_client_ids().iter(){
+        let response = bots.get_bot_response(bot_id);
+        if response.is_none(){continue;}
+        let inputs = response.unwrap();
+        let client_data_op = clients_data.get_option_by_client_id(bot_id);
+        if client_data_op.is_some() {
+            let client_data = client_data_op.unwrap();
+            let res = ships_q.get_mut(client_data.entity); 
+            if res.is_ok(){
+                let (mut velocity, transform, object, mut state, statuses) = res.unwrap();
+                //todo: add dash
+                match *state{
+                    ShipState::Dead { time: _ } => {} // cant move!
+                    ShipState::Dash { start_time, mut init_velocity } => {
+                        
+                        //*velocity.linvel = direction.normalize_or_zero() * 400. * (0.5 + 1. - ((time.elapsed_seconds() - start_time) / cfg.dash_time).powi(3));
+
+                        //*state = ShipState::Dash { start_time: time.elapsed_seconds(), direction: target_direction };
+
+                        // let it be...
+                        velocity.linvel = init_velocity + init_velocity.normalize_or_zero() * cfg.dash_impulse;
+                        /*velocity.linvel = init_velocity.normalize_or_zero() * 400. * (0.5 + 1. - ((time.elapsed_seconds() - start_time) / cfg.dash_time).powi(3));
+                        *state = ShipState::Dash { start_time: start_time, init_velocity: init_velocity };*/
+
+                        if start_time + cfg.dash_time < time.elapsed_seconds(){
+                            *state = ShipState::Regular;
+                            velocity.linvel = if init_velocity.length_squared() > 300_f32.powi(2) {init_velocity} else {init_velocity.normalize() * 300.}
+                        }
+                    }
+                    ShipState::Regular => {
+                        // MOVES
+                        let mut target_direction = Vec2::ZERO;
+                        if inputs.up    {target_direction.y += 1.0;} //  || buttons.pressed(MouseButton::Right
+                        if inputs.down  {target_direction.y -= 1.0;}
+                        if inputs.right {target_direction.x += 1.0;}
+                        if inputs.left  {target_direction.x -= 1.0;}
+
+                        if statuses.has_haste(){
+                            target_direction *= cfg.effects_haste_amount;
+                        } 
+                        
+                        // let it be...
+                        let target_angle = transform.up().truncate().angle_between(inputs.rotation_target);
+                        if !target_angle.is_nan(){
+                            velocity.angvel += ((target_angle * 180. / PI - velocity.angvel) * 1.).clamp(-90., 90.);//.clamp(-1.5, 1.5);
+                        }
+                        velocity.linvel += target_direction;
+
+                        // SHOOTING
+                        if inputs.shoot{
+                            let exist = server_side_varables.shooting_cds.contains_key(bot_id);
+                            let current_time = time.elapsed().as_secs_f32();
+                            if exist {
+                                let last_time = server_side_varables.shooting_cds.get(bot_id).unwrap().clone();
+                                if time.elapsed().as_secs_f32() - last_time > cfg.shoot_cd_secs{
+                                    spawn_bullet(
+                                        velocity.linvel + transform.up().truncate() * 1000., 
+                                        statuses.has_extra_damage(),
+                                        *transform, 
+                                        cfg.new_id(), 
+                                        client_data.object_id, 
+                                        current_time, 
+                                        &asset_server, 
+                                        &mut commands
+                                    );
+                                    
+                                    server_side_varables.shooting_cds.insert(*bot_id, current_time);
+                                }
+                            } else {
+                                spawn_bullet(
+                                    velocity.linvel + transform.up().truncate() * 1000., 
+                                    statuses.has_extra_damage(),
+                                    *transform, 
+                                    cfg.new_id(), 
+                                    client_data.object_id, 
+                                    current_time, 
+                                    &asset_server, 
+                                    &mut commands
+                                );
+                                server_side_varables.shooting_cds.insert(*bot_id, current_time);
+                            }
+                        }
+                        if inputs.dash {
+                            let exist = server_side_varables.dash_cds.contains_key(bot_id);
+                            let current_time = time.elapsed().as_secs_f32();
+                            if exist {
+                                let last_time = server_side_varables.dash_cds.get(bot_id).unwrap().clone();
+                                if time.elapsed().as_secs_f32() - last_time > cfg.dash_cd_secs{
+                                    if target_direction == Vec2::ZERO {
+                                        target_direction = Vec2::from_angle(transform.rotation.to_euler(EulerRot::XYZ).2 + PI / 2.);
+                                    }
+                                    *state = ShipState::Dash { start_time: time.elapsed_seconds(), init_velocity: target_direction.normalize() * velocity.linvel.length()};
+                                    
+                                    velocity.angvel = 0.;
+                                    
+                                    server_side_varables.dash_cds.insert(*bot_id, current_time);
+                                }
+                            } else {
+                                if target_direction == Vec2::ZERO {
+                                    target_direction = Vec2::from_angle(transform.rotation.to_euler(EulerRot::XYZ).2 + PI / 2.);
+                                }
+                                *state = ShipState::Dash { start_time: time.elapsed_seconds(), init_velocity: target_direction };
+                                
+                                velocity.angvel = 0.;
+                                server_side_varables.dash_cds.insert(*bot_id, current_time);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 
@@ -638,7 +764,7 @@ fn handle_events_system(
             ServerEvent::ClientDisconnected { client_id, reason } => {
                 visualizer.remove_client(*client_id);
                 println!("Client {client_id} disconnected: {reason}");
-                let data = clients_data.get_option_by_client_id(client_id.raw());
+                let data = clients_data.get_option_by_client_id(&client_id.raw());
                 if data.is_some(){
                     commands.entity(data.unwrap().entity).despawn_recursive();
                 }

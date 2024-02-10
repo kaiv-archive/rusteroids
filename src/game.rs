@@ -11,7 +11,7 @@ use rand_chacha::ChaCha8Rng;
 
 #[path = "settings.rs"] pub mod settings;
 pub use settings::*;
-#[path = "components.rs"] pub(crate) mod components;
+#[path = "components.rs"] pub mod components;
 pub use components::*;
 
 
@@ -1023,14 +1023,11 @@ pub fn asteroids_refiller(
 }
 
 
-
-pub fn get_pos_to_spawn( // todo: make fast version, time usage might be insane!
+// todo: make fast version, time usage might be insane!
+pub fn get_pos_to_spawn( 
     objects_distribution: &mut ResMut<ObjectsDistribution>,
     cfg: &ResMut<GlobalConfig>,
 ) -> Vec2 {
-
-    
-    
     let size = cfg.map_size_chunks;
     let size = (size.x as u32, size.y as u32);
     // chunks with player overrides chunks around
@@ -1170,7 +1167,6 @@ pub fn get_pos_to_spawn( // todo: make fast version, time usage might be insane!
             return dot;
         }
     }
-    println!("PIZDEC!");
     return Vec2::ZERO;
 }
 
@@ -1202,8 +1198,6 @@ pub fn check_bullet_collisions_and_lifetime(
                 let dir = point - previous_pos;
                 let len = dir.length();
                 let filter = QueryFilter::default();
-
-                
                 
                 // check collisions
                 rapier_context.intersections_with_ray(
@@ -1216,10 +1210,7 @@ pub fn check_bullet_collisions_and_lifetime(
                             return true
                         }
 
-                        
-
                         //let hit_normal = intersection.normal; // USE FOR PARTILCES
-
 
                         // Check if entity is asteroid
                         if let Ok(tuple) = query_object.get_mut(entity){
@@ -1269,7 +1260,7 @@ pub fn check_bullet_collisions_and_lifetime(
                                             commands.entity(entity).insert((
                                                 ShipState::Dead { time: 0. },
                                                 ShipStatuses{current: HashMap::new()},
-                                                Visibility::Hidden,
+                                                //Visibility::Hidden,
                                                 ColliderDisabled,
                                                 Velocity::zero(),
                                                 object_copy
@@ -1284,7 +1275,6 @@ pub fn check_bullet_collisions_and_lifetime(
                                         to_despawn.insert(bullet_entity);
                                         return false
                                     }
-                                    
                                 }
                                 _ => {}
                             }

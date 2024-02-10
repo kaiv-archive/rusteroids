@@ -6,6 +6,7 @@ use rand::{SeedableRng, Rng};
 use rand_chacha::ChaCha8Rng;
 use serde::{Serialize, Deserialize};
 
+
 #[derive(Resource)]
 pub struct ConnectProperties{
     pub adress: String
@@ -142,8 +143,8 @@ impl ClientsData{
     pub fn get_by_client_id(&self, key: u64) -> &ClientData{
         self.data.get(&key).unwrap()
     }
-    pub fn get_option_by_client_id(&self, key: u64) -> Option<&ClientData>{
-        self.data.get(&key)
+    pub fn get_option_by_client_id(&self, key: &u64) -> Option<&ClientData>{
+        self.data.get(key)
     }
     pub fn get_mut_by_client_id(&mut self, key: u64) -> &mut ClientData{
         self.data.get_mut(&key).unwrap()
@@ -326,16 +327,6 @@ pub struct LoadedChunks{ pub chunks: Vec<Chunk> } // todo: fow what? (debug mayb
 #[derive(Resource)]
 pub struct ObjectsDistribution{
     pub data: HashMap<(u32, u32), (u32, bool, Vec<Vec2>)>
-}
- // todo: delete
-#[derive(Event)]
-pub struct BrokeAsteroid( pub Entity );
-
-#[derive(Event)]
-pub struct SpawnBullet{ 
-    pub transform: Transform, 
-    pub velocity: Velocity,
-    pub owner: u64 
 }
 
 pub enum GameRenderLayers{

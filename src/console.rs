@@ -1,9 +1,14 @@
-
 use bevy::{input::{keyboard::KeyCode, Input}, ecs::system::{Local, Res, Resource}, prelude::*, utils::hashbrown::HashMap};
 use bevy_egui::{egui::{epaint::Shadow, self}, EguiContexts};
 use bevy_rapier2d::rapier::crossbeam::epoch::Pointable;
-
+use bevy_renet::{renet::{*, transport::*}, RenetServerPlugin, transport::NetcodeServerPlugin};
+use renet_visualizer::RenetServerVisualizer;
 use rand::random;
+
+use crate::{get_pos_to_spawn, spawn_ship, ClientData, ClientsData, GlobalConfig, Message, ObjectsDistribution, ServerChannel};
+
+#[path = "bot_ai.rs"] pub mod bot_ai;
+pub use bot_ai::*;
 
 
 
@@ -27,9 +32,17 @@ pub struct CommandEvent{command: String}
 
 
 pub fn command_executer(
+    mut server: ResMut<RenetServer>,
     mut reader: EventReader<CommandEvent>,
+    mut clients_data: ResMut<ClientsData>,
+    mut objects_distribution: ResMut<ObjectsDistribution>,
     mut chat_history: ResMut<ChatHistory>,
-    mut commands: Commands
+    mut cfg: ResMut<GlobalConfig>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    time: Res<Time>,
+    mut commands: Commands,
+    mut botlist: ResMut<BotList>,
 ){
     
     let mut log = |text: String|{
@@ -39,17 +52,11 @@ pub fn command_executer(
     for event in reader.read(){
         if event.command.is_empty() || event.command.chars().all(|s| s == ' ') {continue;} // empty
         if event.command.starts_with("/"){
-
             let spawn_example = "/spawn [thing: asteroid/...] [chunk x: int] [chunk y: int]";
-
-
-
             let mut command = event.command.clone();
-
             log(format!("> {}", command));
             command.remove(0);
             let splitted: Vec<&str> = command.split_whitespace().collect();
-
             let head_command = splitted.get(0);
             let head_command = if head_command.is_some(){
                 *head_command.unwrap()
@@ -57,10 +64,60 @@ pub fn command_executer(
                 log(format!("< There is no command body!"));
                 continue;
             };
-
-
             match head_command {
                 "help" => {log("< help command executed!".into())}
+                "bot" => {// /spawn bot <style>
+                    let thing = splitted.get(1);
+                    let thing = if thing.is_some(){
+                        *thing.unwrap()
+                    } else {
+                        log(format!("< spawn/list/despawn")); // todo
+                        continue;
+                    };
+                    match thing {
+                        "spawn" => {
+                            let object_id = cfg.new_id();
+                            let style = rand::random::<u8>();
+                            let color = Color::Hsla { hue: rand::random::<f32>(), saturation: rand::random::<f32>(), lightness: rand::random::<f32>(), alpha: 1. } * 2.;
+                            let name = "BEBROBOT";
+                            let id = rand::random::<u64>();
+                            let for_spawn_cl_data = ClientData::for_spawn(style, color, object_id);
+                            let pos = get_pos_to_spawn(&mut objects_distribution, &mut cfg).extend(0.);
+                            let entity = spawn_ship(false, &mut meshes, &mut materials, &mut commands, &for_spawn_cl_data, &mut cfg, &time);
+                            commands.entity(entity).insert(Transform::from_translation(pos));
+                            let new_client_data = ClientData { 
+                                client_id: id,
+                                object_id: object_id,
+                                entity: entity,
+                                style: style,
+                                color: color, 
+                                name: name.to_string() 
+                            };
+                            clients_data.add(new_client_data.clone());
+                            println!("register new BOT with id {}", id);
+                            botlist.register_bot(id);
+                            let msg = Message::NewConnection {client_data: new_client_data};
+                            let encoded: Vec<u8> = bincode::serialize(&msg).unwrap();
+                            server.broadcast_message(ServerChannel::Garanteed, encoded);
+                        }
+                        "list" => {
+                            let bots = botlist.get_bots_client_ids();
+                            if bots.len() > 0{
+                                log("List of bot ids:".into());
+                                for bot_id in bots.iter(){
+                                    log(format!("   {}", bot_id));
+                                }
+                            } else {
+                                log("There is no bots".into());
+                            }
+                        }
+                        "despawn" => {}
+                        _ => {}
+                    }
+                }
+                "set" => {
+                    log(format!("< There is nothing to set!"));
+                }
                 "spawn" => {
                     let thing = splitted.get(1);
                     let thing = if thing.is_some(){
@@ -71,14 +128,21 @@ pub fn command_executer(
                     };
                     match thing {
                         "asteroid" => {
-                            
                         }
-                        _ => {log(format!("< Unknown thing: {} \n  Using: {}", thing, spawn_example))}
+                        _ => {
+                            log(format!("< Unknown thing: {} \n  Using: {}", thing, spawn_example))
+                        }
                     }
                 }
-                "kill" => {log("< kill command executed!".into())}
-                "kick" => {log("< kick command executed!".into())}
-                "say" => {log("< say command executed!".into())}
+                "kill" => {
+                    log("< kill command executed!".into())
+                }
+                "kick" => {
+                    log("< kick command executed!".into())
+                }
+                "say" => {
+                    log("< say command executed!".into())
+                }
                 _ => {log(format!("< Unknown command: {}", head_command))}
             }
 
