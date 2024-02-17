@@ -408,6 +408,7 @@ fn send_message_system(
                     }
                 }
                 if is_bot{
+                    println!("bot data send!");
                     bots.set_bot_world_state(**client_id, personalised_data)
                 } else {
                     let msg = Message::Update {

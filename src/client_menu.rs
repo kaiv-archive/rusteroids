@@ -596,7 +596,6 @@ pub fn setup_splash(
     asset_server: Res<AssetServer>,
     settings: ResMut<GameSettings>,
 ){
-
     for i in 1..=LABEL_RESOLUTION{
         if i == 1{
             commands.spawn((
