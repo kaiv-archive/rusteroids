@@ -1,7 +1,9 @@
+use std::cmp::Ordering;
+
 use bevy::{app::App, ecs::system::{Res, ResMut, Resource}, math::Vec2, time::Time, utils::hashbrown::{HashMap, HashSet}};
 use json::object;
 
-use crate::{ClientsData, InputKeys, ObjectData};
+use crate::{ClientsData, GlobalConfig, InputKeys, ObjectData};
 
 /*
 self -> movemvents 
@@ -105,6 +107,26 @@ impl BotList{
 }
 
 
+fn world_wrapped_vec(obj1: Vec2, obj2: Vec2, world_size: Vec2) -> Vec2 { // todo: move to cfg and use in stars/dust layers
+    let vector_without_looping = obj2 - obj1;
+    return Vec2::from((
+        [vector_without_looping.x, vector_without_looping.x - world_size.x, vector_without_looping.x + world_size.x]
+            .iter()
+            .min_by(|&x, &y| {
+                x.abs().partial_cmp(&y.abs()).unwrap_or(Ordering::Equal)
+            })
+            .unwrap()
+            .clone(),
+        [vector_without_looping.y, vector_without_looping.y - world_size.y, vector_without_looping.y + world_size.y]
+            .iter()
+            .min_by(|&x, &y| {
+                x.abs().partial_cmp(&y.abs()).unwrap_or(Ordering::Equal)
+            })
+            .unwrap()
+            .clone(),
+    ));
+}
+
 pub fn init_bots_ai(
     app: &mut App,
 ){
@@ -114,43 +136,71 @@ pub fn init_bots_ai(
 pub fn calculate_bots_response(
     mut bots: ResMut<BotList>,
     clients_data: Res<ClientsData>,
+    cfg: Res<GlobalConfig>,
     time: Res<Time>,
 ){
     for bot_id in bots.get_bots_client_ids().iter(){
         let bot_data = clients_data.get_by_client_id(*bot_id);
         let bot_object_id = bot_data.object_id;
-        let mut shooting_target_position : Option<Vec2> = None;
-        let mut fly_target : Vec2 = Vec2::ZERO;
-        let mut self_position : Option<Vec2> = None;
-        // 
+
+        let mut shooting_target : Option<&ObjectData> = None;
+        let mut self_data : Option<&ObjectData> = None;
+
+        let world_size = cfg.map_size_chunks * cfg.single_chunk_size;
+
+        // target is 
+        //                         ?
+        // n. powerup -> n. player / lowest hp player -> n. asteroid
+
         //let mut powerups =
-        if !bots.is_state_updated(bot_id){
-            println!("first step passed!");
+        if bots.is_state_updated(bot_id){
             let objects = bots.get_bot_world_state(bot_id);
-            
             if objects.is_some(){
                 let objects = objects.unwrap();
-                println!("number of objects: {}", objects.len());
                 for object_data in objects.iter(){
                     match object_data.object.object_type{
                         crate::ObjectType::Ship { style, color, shields, hp } => {
                             //fly_target = 
                             if (object_data.object.id == bot_object_id){ // define self position
-                                self_position = Some(object_data.translation.truncate());
+                                self_data = Some(object_data);
+                            } else {
+                                shooting_target = Some(object_data);
                             }
-                            println!("id: {:?}", object_data.object.id);
                         }
                         _ => {}
                     }
                 }
             }
         }
+
+        let keep_distance: f32 = 100.;
+        //shooting_target = ObjectData{ object: crate::Object::, states_and_statuses: todo!(), angular_velocity: todo!(), linear_velocity: todo!(), translation: todo!(), rotation: todo!() };
+        let mut acceleration_direction = Vec2::ZERO;
+        let mut rotation_direction = Vec2::ZERO;
+        let mut bot_inputs = InputKeys::default();
+        if self_data.is_some() {
+            if shooting_target.is_some(){
+                let target_vector = world_wrapped_vec(self_data.unwrap().translation.truncate(), shooting_target.unwrap().translation.truncate(), world_size);
+                let target_distance_squared = target_vector.length_squared();
+                acceleration_direction = target_vector.normalize();
+                if target_distance_squared < keep_distance.powi(2) {
+                    acceleration_direction = -acceleration_direction;
+                }
+                //target_distance
+                if acceleration_direction.x >= 0. {bot_inputs.right = true}
+                else {bot_inputs.left = true}
+                if acceleration_direction.y >= 0. {bot_inputs.up = true}
+                else {bot_inputs.down = true}
+                rotation_direction = acceleration_direction.normalize();
+                bot_inputs.rotation_target = rotation_direction;
+            }
+        }
+        
         
 
-
-        let mut rotation_direction = fly_target;
+        
         //if shooting_target.is_some(){fly_target =};
-        bots.set_bot_response(bot_id, InputKeys { rotation_target: rotation_direction.normalize(), ..Default::default()});
+        bots.set_bot_response(bot_id, bot_inputs);
         
     }
 }

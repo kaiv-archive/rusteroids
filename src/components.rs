@@ -288,7 +288,7 @@ pub fn get_asteroid_size(seed: u64) -> u8{
 }
 
 impl GlobalConfig{
-    pub fn get_asteroid_hp(&mut self, seed: u64) -> u8{
+    pub fn get_asteroid_hp(&self, seed: u64) -> u8{
         *self.asteroid_hp.get(get_asteroid_size(seed) as usize - 1).unwrap() as u8
     }
     pub fn new_id(&mut self) -> u64{ // ID 0 IS EMPTY!!!!

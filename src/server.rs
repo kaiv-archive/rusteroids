@@ -360,6 +360,9 @@ fn send_message_system(
     for cid in clients_ids{
         clients.insert(cid.raw(), cid);
     }
+    for bot_id in bot_ids.iter(){ // todo: find better solution
+        clients.insert(*bot_id, ClientId::from_raw(*bot_id));
+    }
 
     for client_id in clients.keys().collect::<Vec<&u64>>().iter() {
         let is_bot = bot_ids.contains(*client_id);
@@ -408,7 +411,6 @@ fn send_message_system(
                     }
                 }
                 if is_bot{
-                    println!("bot data send!");
                     bots.set_bot_world_state(**client_id, personalised_data)
                 } else {
                     let msg = Message::Update {
