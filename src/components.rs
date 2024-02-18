@@ -576,10 +576,7 @@ pub enum InputType{
 #[derive(Serialize, Deserialize)]
 #[derive(Resource)]
 pub struct InputKeys{
-    pub up: bool,
-    pub down: bool,
-    pub left: bool,
-    pub right: bool,
+    pub input_vector: Vec2,
     pub rotate_left: bool,
     pub rotate_right: bool,
     pub rotation_target: Vec2,
@@ -593,10 +590,7 @@ pub struct InputKeys{
 impl Default for InputKeys{
     fn default() -> Self {
         InputKeys {
-            up: false,
-            down: false,
-            left: false,
-            right: false,
+            input_vector: Vec2::ZERO,
             rotate_left: false,
             rotate_right: false,
             rotation_target: Vec2::ZERO,

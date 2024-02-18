@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::{cmp::Ordering, ops::Mul};
 
 use bevy::{app::App, ecs::system::{Res, ResMut, Resource}, math::Vec2, time::Time, utils::hashbrown::{HashMap, HashSet}};
 use json::object;
@@ -175,14 +175,60 @@ pub fn calculate_bots_response(
 
         let keep_distance: f32 = 100.;
         //shooting_target = ObjectData{ object: crate::Object::, states_and_statuses: todo!(), angular_velocity: todo!(), linear_velocity: todo!(), translation: todo!(), rotation: todo!() };
-        let mut acceleration_direction = Vec2::ZERO;
         let mut rotation_direction = Vec2::ZERO;
         let mut bot_inputs = InputKeys::default();
         if self_data.is_some() {
+            let self_data = self_data.unwrap();
             if shooting_target.is_some(){
-                let target_vector = world_wrapped_vec(self_data.unwrap().translation.truncate(), shooting_target.unwrap().translation.truncate(), world_size);
+                let target_vector = world_wrapped_vec(self_data.translation.truncate(), shooting_target.unwrap().translation.truncate(), world_size);
                 let target_distance_squared = target_vector.length_squared();
-                acceleration_direction = target_vector.normalize();
+                let direction = target_vector.normalize();
+
+                
+                /*let error_vector = target_vector;
+                let distance = target_distance_squared.sqrt();
+                let norm_error_vector = error_vector.normalize();
+                let desired_vel = norm_error_vector * keep_distance;
+                let velocity_difference = self_data.linear_velocity -desired_vel ;*/
+
+
+                // speed up while it needs
+                let t = -self_data.linear_velocity.x / (direction.x * 100.);
+                let distancex = self_data.linear_velocity.x * t + 1./2. * (direction.x * 100.) * t.powi(2);              
+
+                let res = distancex - (target_distance_squared.sqrt() - keep_distance);
+
+                if res >= 0. {
+                    bot_inputs.input_vector = if target_vector.length_squared() > 1. {-direction} else {-target_vector};
+                } else {
+                    bot_inputs.input_vector = if target_vector.length_squared() > 1. {direction} else {target_vector};
+                }
+
+
+
+                /*
+                0 = u + at
+                u = -at
+
+                s = u * (-at) + 1/2 a(at)2
+
+                */
+
+
+
+
+
+
+
+                //rotation_direction = velocity_difference.normalize();
+                
+
+
+                /*
+                *! VADIANT 0
+                // bot_inputs.rotation_target = rotation_direction;
+                //acceleration_direction = target_vector.normalize();
+
                 if target_distance_squared < keep_distance.powi(2) {
                     acceleration_direction = -acceleration_direction;
                 }
@@ -192,7 +238,13 @@ pub fn calculate_bots_response(
                 if acceleration_direction.y >= 0. {bot_inputs.up = true}
                 else {bot_inputs.down = true}
                 rotation_direction = acceleration_direction.normalize();
-                bot_inputs.rotation_target = rotation_direction;
+                bot_inputs.rotation_target = rotation_direction;*/
+
+                /* 
+                *! VADIANT 1
+                let desired_velocity = target_vector / target_distance_squared.sqrt() * keep_distance;
+                let velocity_difference = desired_velocity - self_data.linear_velocity;
+                */
             }
         }
         

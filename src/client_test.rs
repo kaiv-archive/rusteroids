@@ -161,10 +161,7 @@ fn handle_inputs(
         return;
     };
     let (mut vel, transform, object) = player_data.unwrap();
-    inp.up = false;
-    inp.down = false;
-    inp.left = false;
-    inp.right = false;
+    inp.input_vector = Vec2::ZERO;
     inp.rotate_left = false;
     inp.rotate_right = false;
     inp.stabilize = false;
@@ -174,12 +171,13 @@ fn handle_inputs(
     match *input_type{
         InputType::Keyboard => {
             inp.fixed_camera_z = false;
-            if keys.pressed(KeyCode::W){inp.up = true} // || buttons.pressed(MouseButton::Right
-            if keys.pressed(KeyCode::S){inp.down = true}
+            if keys.pressed(KeyCode::W){inp.input_vector += Vec2::Y} 
+                if keys.pressed(KeyCode::S){inp.input_vector -= Vec2::Y}
+                if keys.pressed(KeyCode::A){inp.input_vector += Vec2::X}
+                if keys.pressed(KeyCode::D){inp.input_vector -= Vec2::X}
             if keys.pressed(KeyCode::A){inp.rotate_left = true}
             if keys.pressed(KeyCode::D){inp.rotate_right = true}
-            if keys.pressed(KeyCode::K){inp.left = true}
-            if keys.pressed(KeyCode::L){inp.right = true}
+            
 
             if keys.just_pressed(KeyCode::ShiftLeft){//DASH
                 inp.dash = true;
@@ -195,10 +193,10 @@ fn handle_inputs(
         }
         InputType::Mouse => {
             inp.fixed_camera_z = true;
-            if keys.pressed(KeyCode::W){inp.up = true} //  || buttons.pressed(MouseButton::Right
-            if keys.pressed(KeyCode::S){inp.down = true}
-            if keys.pressed(KeyCode::A){inp.left = true}
-            if keys.pressed(KeyCode::D){inp.right = true}
+            if keys.pressed(KeyCode::W){inp.input_vector += Vec2::Y}
+            if keys.pressed(KeyCode::S){inp.input_vector -= Vec2::Y}
+            if keys.pressed(KeyCode::A){inp.input_vector += Vec2::X}
+            if keys.pressed(KeyCode::D){inp.input_vector -= Vec2::X}
 
             if keys.just_pressed(KeyCode::ShiftLeft){//DASH
                 inp.dash = true;
@@ -326,11 +324,6 @@ fn update(
         println!("twice speed");
     }*/
     
-    let mut target_direction = Vec2::ZERO;
-    if inp.up    {target_direction.y += 1.5;} //  || buttons.pressed(MouseButton::Right
-    if inp.down  {target_direction.y -= 0.75;}
-    if inp.right {target_direction.x += 1.0;}
-    if inp.left  {target_direction.x -= 1.0;}
     
     if inp.stabilize{
         velocity.linvel = velocity.linvel * 0.97;
@@ -338,9 +331,9 @@ fn update(
     }
     
     let target_vector = if inp.fixed_camera_z{
-        target_direction * 2.
+        inp.input_vector * 2.
     } else {
-        transform.up().truncate() * target_direction.y * 2.0 + transform.right().truncate() * target_direction.x * 2.0
+        transform.up().truncate() * inp.input_vector.y * 2.0 + transform.right().truncate() * inp.input_vector.x * 2.0
     };
     
     velocity.linvel += target_vector;

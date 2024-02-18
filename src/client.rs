@@ -214,11 +214,11 @@ fn handle_inputs_system(
     };
     let (mut vel, transform, object) = player_data.unwrap();
 
-
-    if keys.pressed(KeyCode::W){inp.up = true} //  || buttons.pressed(MouseButton::Right
-    if keys.pressed(KeyCode::S){inp.down = true}
-    if keys.pressed(KeyCode::A){inp.left = true}
-    if keys.pressed(KeyCode::D){inp.right = true}
+    
+    if keys.pressed(KeyCode::W){inp.input_vector += Vec2::Y} //  || buttons.pressed(MouseButton::Right
+    if keys.pressed(KeyCode::S){inp.input_vector -= Vec2::Y}
+    if keys.pressed(KeyCode::A){inp.input_vector += Vec2::X}
+    if keys.pressed(KeyCode::D){inp.input_vector -= Vec2::X}
     if keys.pressed(KeyCode::ShiftLeft){inp.dash = true}
     if keys.pressed(KeyCode::Space){inp.shoot = true}
     
